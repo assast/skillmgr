@@ -7,6 +7,9 @@ mod db;
 mod config;
 mod git;
 
+use std::path::Path;
+use std::fs;
+
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -20,29 +23,57 @@ async fn add_repository(
     url: Option<&str>,
     path: &str,
     source_type: &str,
-    local_path: &str,
     auth_type: Option<&str>,
     auth_config: Option<&str>,
     branch: Option<&str>,
+    copy: Option<bool>,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
-    let mut repo = db::repository::Repository::create(
-        &pool,
-        name,
-        url,
-        path,
-        source_type,
-        local_path,
-        "pending",
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    // 获取基础路径
+    let base_path = config::base_path::get_base_path(&pool)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Base path not set, please configure it first".to_string())?;
     
-    // 如果是远程仓库，执行克隆
-    if source_type == "git" && url.is_some() {
+    // 验证source_type
+    match source_type {
+        "github" | "private-git" | "local" => {},
+        _ => return Err(format!("Invalid source type: {}, must be one of github, private-git, local", source_type)),
+    }
+    
+    // 构建本地路径
+    let base_path = Path::new(&base_path);
+    let local_path = match source_type {
+        "github" => base_path.join("github").join(name),
+        "private-git" => base_path.join("private-git").join(name),
+        "local" => base_path.join("local").join(name),
+        _ => unreachable!(),
+    };
+    
+    let local_path_str = local_path.to_str()
+        .ok_or_else(|| "Invalid local path, contains non-UTF8 characters".to_string())?;
+    
+    // 处理Git类型仓库
+    if source_type == "github" || source_type == "private-git" {
+        let url = url.ok_or_else(|| "URL is required for Git repositories".to_string())?;
+        
+        // 创建仓库记录
+        let mut repo = db::repository::Repository::create(
+            &pool,
+            name,
+            Some(url),
+            path,
+            source_type,
+            local_path_str,
+            "pending",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        // 执行克隆
         match git::clone_repository(
-            url.unwrap(),
-            local_path,
+            url,
+            local_path_str,
             branch.unwrap_or("main"),
             auth_type.unwrap_or("none"),
             auth_config.unwrap_or("{}"),
@@ -55,9 +86,88 @@ async fn add_repository(
                 return Err(e.to_string());
             }
         }
+        
+        Ok(repo)
+    } 
+    // 处理本地类型仓库
+    else if source_type == "local" {
+        let source_path = Path::new(path);
+        
+        // 验证源路径
+        if !source_path.exists() {
+            return Err(format!("Source path does not exist: {}", path));
+        }
+        if !source_path.is_dir() {
+            return Err(format!("Source path is not a directory: {}", path));
+        }
+        
+        // 检查目标路径是否已存在
+        if local_path.exists() {
+            return Err(format!("Repository already exists at: {}", local_path_str));
+        }
+        
+        // 创建仓库记录
+        let mut repo = db::repository::Repository::create(
+            &pool,
+            name,
+            None,
+            path,
+            source_type,
+            local_path_str,
+            "pending",
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        
+        // 递归复制目录的辅助函数
+        fn copy_dir(source: &Path, target: &Path) -> Result<(), String> {
+            fs::create_dir_all(target).map_err(|e| format!("Failed to create directory: {}", e))?;
+            
+            for entry in fs::read_dir(source).map_err(|e| format!("Failed to read source directory: {}", e))? {
+                let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
+                let entry_path = entry.path();
+                let target_entry_path = target.join(entry.file_name());
+                
+                if entry_path.is_dir() {
+                    copy_dir(&entry_path, &target_entry_path)?;
+                } else {
+                    fs::copy(&entry_path, &target_entry_path).map_err(|e| format!("Failed to copy file: {}", e))?;
+                }
+            }
+            
+            Ok(())
+        }
+        
+        // 执行复制或符号链接
+        let copy = copy.unwrap_or(false);
+        let result = if copy {
+            copy_dir(source_path, &local_path)
+        } else {
+            #[cfg(unix)]
+            {
+                std::os::unix::fs::symlink(source_path, &local_path)
+                    .map_err(|e| format!("Failed to create symbolic link: {}", e))
+            }
+            #[cfg(windows)]
+            {
+                std::os::windows::fs::symlink_dir(source_path, &local_path)
+                    .map_err(|e| format!("Failed to create symbolic link: {}", e))
+            }
+        };
+        
+        match result {
+            Ok(_) => {
+                repo.update(&pool, None, None, None, None, None, Some("synced"), None).await.map_err(|e| e.to_string())?;
+                Ok(repo)
+            }
+            Err(e) => {
+                repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e)).await.map_err(|e| e.to_string())?;
+                Err(e)
+            }
+        }
+    } else {
+        Err("Invalid source type".to_string())
     }
-    
-    Ok(repo)
 }
 
 /// 获取所有仓库
