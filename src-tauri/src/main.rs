@@ -14,6 +14,92 @@ use crate::db::dispatch_template::{DispatchTemplate, CreateDispatchTemplateInput
 use crate::dispatch::DispatchMethod;
 
 // ------------------------------
+// General Config Commands
+// ------------------------------
+
+/// Get a config value by key
+#[tauri::command]
+async fn get_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+    key: &str,
+) -> Result<Option<String>, String> {
+    crate::db::config::Config::get(&pool, key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Set a config value
+#[tauri::command]
+async fn set_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+    key: &str,
+    value: &str,
+) -> Result<(), String> {
+    crate::db::config::Config::set(&pool, key, value)
+        .await
+        .map_err(|e| e.to_string())
+        .map(|_| ())
+}
+
+/// Delete a config value
+#[tauri::command]
+async fn delete_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+    key: &str,
+) -> Result<(), String> {
+    crate::db::config::Config::delete(&pool, key)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+// ------------------------------
+// LLM Config Commands
+// ------------------------------
+
+/// Get LLM configuration
+#[tauri::command]
+async fn get_llm_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<crate::llm::LLMConfig, String> {
+    crate::llm::LLMConfig::from_db(&pool).await
+}
+
+/// Save LLM configuration
+#[tauri::command]
+async fn save_llm_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+    api_key: &str,
+    base_url: Option<&str>,
+    model: &str,
+) -> Result<(), String> {
+    use crate::db::config::Config;
+    
+    // Save API key
+    Config::set(&pool, "llm.openai.api_key", api_key)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    // Save base URL (if provided)
+    if let Some(base_url) = base_url {
+        Config::set(&pool, "llm.openai.base_url", base_url)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        // Delete if base URL is empty
+        Config::delete(&pool, "llm.openai.base_url")
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    
+    // Save model
+    Config::set(&pool, "llm.openai.model", model)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(())
+}
+
+// ------------------------------
 // Dispatch Template Commands
 // ------------------------------
 
@@ -417,6 +503,11 @@ fn main() {
             config::base_path::get_base_path_command,
             config::base_path::set_base_path_command,
             config::base_path::init_base_directory_command,
+            get_config,
+            set_config,
+            delete_config,
+            get_llm_config,
+            save_llm_config,
             add_repository,
             list_repositories,
             get_repository,

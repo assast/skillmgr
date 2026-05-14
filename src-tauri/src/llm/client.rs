@@ -2,7 +2,7 @@ use openai::Client;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 
-use crate::config::models::Config;
+use crate::db::config::Config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
