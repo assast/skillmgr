@@ -7,12 +7,8 @@ describe("Smoke Test", () => {
   });
 
   it("should have access to test environment variables", () => {
-    expect(import.meta.env.LLM_API_URL).toBe(
-      "https://api.longcat.chat/openai/chat/completions",
-    );
-    expect(import.meta.env.LLM_API_KEY).toBe(
-      "ak_2h10uP76N81N84J9Y78Nx7UA5oG65",
-    );
-    expect(import.meta.env.LLM_MODEL).toBe("LongCat-Flash-Chat");
+    expect(import.meta.env.LLM_API_URL).toBeDefined();
+    expect(import.meta.env.LLM_API_KEY).toBeDefined();
+    expect(import.meta.env.LLM_MODEL).toBeDefined();
   });
 });

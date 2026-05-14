@@ -32,9 +32,10 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
     env: {
-      LLM_API_URL: "https://api.longcat.chat/openai/chat/completions",
-      LLM_API_KEY: "ak_2h10uP76N81N84J9Y78Nx7UA5oG65",
-      LLM_MODEL: "LongCat-Flash-Chat",
+      LLM_API_URL:
+        process.env.LLM_API_URL || "https://api.openai.com/v1/chat/completions",
+      LLM_API_KEY: process.env.LLM_API_KEY || "test-api-key",
+      LLM_MODEL: process.env.LLM_MODEL || "gpt-3.5-turbo",
     },
   },
 });
