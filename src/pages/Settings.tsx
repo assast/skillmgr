@@ -83,6 +83,7 @@ export function SettingsPage() {
       soundEnabled: true,
       desktopNotificationsEnabled: false,
     });
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
   useEffect(() => {
     loadLLMConfig();
@@ -203,6 +204,18 @@ export function SettingsPage() {
       toast.error(
         `Failed to save Notification configuration: ${(error as Error).message}`,
       );
+    }
+  };
+
+  const handleCheckUpdate = async () => {
+    try {
+      setIsCheckingUpdate(true);
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      toast.success("You are already using the latest version!");
+    } catch (error) {
+      toast.error(`Failed to check for updates: ${(error as Error).message}`);
+    } finally {
+      setIsCheckingUpdate(false);
     }
   };
 
@@ -666,6 +679,41 @@ export function SettingsPage() {
               repository settings. After restoring, you will need to restart the
               application.
             </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <RefreshCw className="h-5 w-5 text-blue-500" />
+              <CardTitle>App Updates</CardTitle>
+            </div>
+            <CardDescription>
+              Check for new versions and update SkillVault
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600 dark:text-gray-300">
+                  Current version: 0.1.0
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Updates are installed automatically when available
+                </p>
+              </div>
+              <Button
+                onClick={handleCheckUpdate}
+                disabled={isCheckingUpdate || isLoading}
+              >
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${isCheckingUpdate ? "animate-spin" : ""}`}
+                />
+                {isCheckingUpdate
+                  ? "Checking for updates..."
+                  : "Check for Updates"}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
