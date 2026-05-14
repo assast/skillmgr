@@ -94,60 +94,75 @@ pub async fn create_table(pool: &sqlx::SqlitePool) -> Result<()> {
 
 /// Create a new skill
 pub async fn create_skill(pool: &sqlx::SqlitePool, create: CreateSkill) -> Result<Skill> {
-    let id = Uuid::new_v4().to_string();
+    let mut skills = bulk_create_skills(pool, vec![create]).await?;
+    Ok(skills.remove(0))
+}
+
+/// Bulk create multiple skills (optimized for batch operations)
+pub async fn bulk_create_skills(pool: &sqlx::SqlitePool, creates: Vec<CreateSkill>) -> Result<Vec<Skill>> {
+    if creates.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let now = Utc::now();
-    let llm_analyzed = create.llm_analyzed.unwrap_or(false);
-
-    let tags_json = serde_json::to_string(&create.tags)?;
-    let dependencies_json = serde_json::to_string(&create.dependencies)?;
-
-    sqlx::query!(
-        r#"
-        INSERT INTO skills (
+    let mut skills = Vec::with_capacity(creates.len());
+    let mut query_builder = sqlx::QueryBuilder::new(
+        "INSERT INTO skills (
             id, name, type, source_type, repository_id, local_path, description, usage,
             tags, dependencies, llm_analyzed, quality_score, status, first_discovered_at,
             created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        "#,
-        id,
-        create.name,
-        create.r#type,
-        create.source_type,
-        create.repository_id,
-        create.local_path,
-        create.description,
-        create.usage,
-        tags_json,
-        dependencies_json,
-        llm_analyzed,
-        create.quality_score,
-        create.status,
-        now,
-        now,
-        now
-    )
-    .execute(pool)
-    .await?;
+        ) "
+    );
 
-    Ok(Skill {
-        id,
-        name: create.name,
-        r#type: create.r#type,
-        source_type: create.source_type,
-        repository_id: create.repository_id,
-        local_path: create.local_path,
-        description: create.description,
-        usage: create.usage,
-        tags: create.tags,
-        dependencies: create.dependencies,
-        llm_analyzed,
-        quality_score: create.quality_score,
-        status: create.status,
-        first_discovered_at: now,
-        created_at: now,
-        updated_at: now,
-    })
+    // Build VALUES clauses for all skills in the batch
+    query_builder.push_values(creates.iter(), |mut b, create| {
+        let id = Uuid::new_v4().to_string();
+        let llm_analyzed = create.llm_analyzed.unwrap_or(false);
+        let tags_json = serde_json::to_string(&create.tags).unwrap_or_default();
+        let dependencies_json = serde_json::to_string(&create.dependencies).unwrap_or_default();
+
+        // Store the skill to return later
+        skills.push(Skill {
+            id: id.clone(),
+            name: create.name.clone(),
+            r#type: create.r#type.clone(),
+            source_type: create.source_type.clone(),
+            repository_id: create.repository_id.clone(),
+            local_path: create.local_path.clone(),
+            description: create.description.clone(),
+            usage: create.usage.clone(),
+            tags: create.tags.clone(),
+            dependencies: create.dependencies.clone(),
+            llm_analyzed,
+            quality_score: create.quality_score,
+            status: create.status.clone(),
+            first_discovered_at: now,
+            created_at: now,
+            updated_at: now,
+        });
+
+        b.push_bind(id)
+            .push_bind(&create.name)
+            .push_bind(&create.r#type)
+            .push_bind(&create.source_type)
+            .push_bind(&create.repository_id)
+            .push_bind(&create.local_path)
+            .push_bind(&create.description)
+            .push_bind(&create.usage)
+            .push_bind(tags_json)
+            .push_bind(dependencies_json)
+            .push_bind(llm_analyzed)
+            .push_bind(&create.quality_score)
+            .push_bind(&create.status)
+            .push_bind(now)
+            .push_bind(now)
+            .push_bind(now);
+    });
+
+    // Execute the bulk insert
+    query_builder.build().execute(pool).await?;
+
+    Ok(skills)
 }
 
 /// Get a skill by ID

@@ -98,35 +98,43 @@ async fn scan_repository(
         return Ok(result);
     }
     
-    // Walk through all directories in the repository
-    for entry in WalkDir::new(repo_path)
+    // Pre-fetch existing skill paths for this repository to avoid per-file queries
+    let mut existing_paths = std::collections::HashSet::new();
+    if !force {
+        let existing = sqlx::query!(
+            "SELECT local_path FROM skills WHERE repository_id = ?",
+            repo.id
+        )
+        .fetch_all(pool)
+        .await?;
+        
+        for row in existing {
+            existing_paths.insert(row.local_path);
+        }
+    }
+    
+    // Batch size for bulk inserts
+    const BATCH_SIZE: usize = 50;
+    let mut batch = Vec::with_capacity(BATCH_SIZE);
+    
+    // Walk through all directories in the repository using streaming iteration
+    let walker = WalkDir::new(repo_path)
+        .min_depth(1) // Skip root directory entirely
+        .same_file_system(true) // Avoid crossing filesystem boundaries
+        .follow_links(false) // Don't follow symlinks to avoid cycles
         .into_iter()
         .filter_entry(|e| !should_skip_dir(e))
-        .filter_map(|e| e.ok())
-    {
+        .filter_map(|e| e.ok());
+    
+    for entry in walker {
         if entry.file_type().is_dir() {
             let path = entry.path();
             
-            // Skip the root repository directory itself
-            if path == repo_path {
-                continue;
-            }
-            
             if is_skill_directory(path) {
-                // Calculate relative path from repository root
-                let relative_path = path.strip_prefix(repo_path)?;
                 let full_path = path.to_string_lossy().to_string();
                 
-                // Check if skill already exists for this repository and path
-                let existing = sqlx::query!(
-                    "SELECT id FROM skills WHERE repository_id = ? AND local_path = ?",
-                    repo.id,
-                    full_path
-                )
-                .fetch_optional(pool)
-                .await?;
-                
-                if existing.is_some() && !force {
+                // Check if skill already exists (using pre-fetched set)
+                if existing_paths.contains(&full_path) && !force {
                     result.skipped_skills.push(full_path);
                     continue;
                 }
@@ -134,7 +142,7 @@ async fn scan_repository(
                 // Extract skill information
                 let name = extract_skill_name(path);
                 
-                // Create skill
+                // Create skill object
                 let create = CreateSkill {
                     name,
                     r#type: "skill".to_string(),
@@ -150,14 +158,31 @@ async fn scan_repository(
                     status: "active".to_string(),
                 };
                 
-                match crate::db::skill::create_skill(pool, create).await {
-                    Ok(skill) => {
-                        result.discovered_skills.push(skill);
-                    }
-                    Err(e) => {
-                        result.errors.push(format!("Failed to create skill for path {}: {}", full_path, e));
+                batch.push(create);
+                
+                // Insert batch when full
+                if batch.len() >= BATCH_SIZE {
+                    match crate::db::skill::bulk_create_skills(pool, std::mem::take(&mut batch)).await {
+                        Ok(skills) => {
+                            result.discovered_skills.extend(skills);
+                        }
+                        Err(e) => {
+                            result.errors.push(format!("Failed to insert skill batch: {}", e));
+                        }
                     }
                 }
+            }
+        }
+    }
+    
+    // Insert remaining items in the last batch
+    if !batch.is_empty() {
+        match crate::db::skill::bulk_create_skills(pool, batch).await {
+            Ok(skills) => {
+                result.discovered_skills.extend(skills);
+            }
+            Err(e) => {
+                result.errors.push(format!("Failed to insert final skill batch: {}", e));
             }
         }
     }

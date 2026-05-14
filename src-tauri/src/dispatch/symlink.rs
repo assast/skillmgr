@@ -1,7 +1,10 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 use anyhow::Result;
+use serde::{Serialize, Deserialize};
 use sqlx::SqlitePool;
 use tauri::State;
+use tokio::sync::Semaphore;
 
 use crate::db::dispatch::{Dispatch, DispatchMethod, SyncStatus};
 use crate::db::skill::Skill;
@@ -126,6 +129,10 @@ pub async fn bulk_dispatch(
         errors: Vec::new(),
     };
 
+    if skill_ids.is_empty() {
+        return Ok(result);
+    }
+
     // Get target directory once (common for all dispatches)
     let target_dir = sqlx::query_as::<_, TargetDir>(
         "SELECT * FROM target_dirs WHERE id = ?"
@@ -136,14 +143,65 @@ pub async fn bulk_dispatch(
     .map_err(|e| format!("Failed to get target directory: {}", e))?
     .ok_or_else(|| format!("Target directory with id {} not found", target_dir_id))?;
 
-    // Process each skill id
+    // Pre-fetch all skills in one query to avoid N+1 database calls
+    let placeholders = std::iter::repeat("?").take(skill_ids.len()).collect::<Vec<_>>().join(",");
+    let query = format!("SELECT * FROM skills WHERE id IN ({})", placeholders);
+    
+    let mut query_builder = sqlx::query_as::<_, Skill>(&query);
+    for skill_id in &skill_ids {
+        query_builder = query_builder.bind(skill_id);
+    }
+    
+    let skills = query_builder.fetch_all(&*pool)
+        .await
+        .map_err(|e| format!("Failed to fetch skills: {}", e))?;
+    
+    // Create a map of skill id to skill for quick lookup
+    let skill_map: std::collections::HashMap<_, _> = skills.into_iter().map(|s| (s.id.clone(), s)).collect();
+
+    // Limit concurrent operations to prevent system overload (too many open files, etc.)
+    const MAX_CONCURRENT: usize = 10;
+    let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT));
+    let mut tasks = Vec::with_capacity(skill_ids.len());
+
+    // Spawn a task for each skill dispatch
     for skill_id in skill_ids {
-        match process_single_dispatch(&skill_id, &target_dir, dispatch_method, &pool).await {
-            Ok(dispatch) => {
-                result.successful.push(dispatch);
+        let semaphore = Arc::clone(&semaphore);
+        let target_dir = target_dir.clone();
+        let pool = pool.clone();
+        let skill = skill_map.get(&skill_id).cloned();
+
+        let task = tokio::spawn(async move {
+            // Acquire permit from semaphore before processing
+            let _permit = semaphore.acquire().await.map_err(|e| e.to_string())?;
+
+            match skill {
+                Some(skill) => {
+                    // Process the dispatch with the pre-fetched skill
+                    process_single_dispatch_with_skill(&skill, &target_dir, dispatch_method, &pool).await
+                }
+                None => {
+                    Err(format!("Skill with id {} not found", skill_id))
+                }
+            }
+            .map(|dispatch| (skill_id, Ok(dispatch)))
+            .unwrap_or_else(|e| (skill_id, Err(e)))
+        });
+
+        tasks.push(task);
+    }
+
+    // Wait for all tasks to complete and collect results
+    for task in tasks {
+        match task.await {
+            Ok((skill_id, result)) => {
+                match result {
+                    Ok(dispatch) => result.successful.push(dispatch),
+                    Err(e) => result.errors.push((skill_id, e)),
+                }
             }
             Err(e) => {
-                result.errors.push((skill_id, e));
+                result.errors.push(("unknown".to_string(), format!("Task failed: {}", e)));
             }
         }
     }
@@ -151,19 +209,13 @@ pub async fn bulk_dispatch(
     Ok(result)
 }
 
-/// Helper function to process a single dispatch (reused from dispatch_skill)
-async fn process_single_dispatch(
-    skill_id: &str,
+/// Helper function to process a single dispatch with pre-fetched skill
+async fn process_single_dispatch_with_skill(
+    skill: &Skill,
     target_dir: &TargetDir,
     dispatch_method: DispatchMethod,
     pool: &SqlitePool,
 ) -> Result<Dispatch, String> {
-    // Get skill by ID
-    let skill = Skill::get_by_id(pool, skill_id)
-        .await
-        .map_err(|e| format!("Failed to get skill: {}", e))?
-        .ok_or_else(|| format!("Skill with id {} not found", skill_id))?;
-
     // Build source and destination paths
     let source_path = PathBuf::from(&skill.local_path);
     let dest_path = PathBuf::from(&target_dir.path).join(&skill.name);
@@ -226,5 +278,21 @@ async fn process_single_dispatch(
     .map_err(|e| format!("Failed to create dispatch record: {}", e))?;
 
     Ok(dispatch)
+}
+
+/// Helper function to process a single dispatch (reused from dispatch_skill)
+async fn process_single_dispatch(
+    skill_id: &str,
+    target_dir: &TargetDir,
+    dispatch_method: DispatchMethod,
+    pool: &SqlitePool,
+) -> Result<Dispatch, String> {
+    // Get skill by ID
+    let skill = Skill::get_by_id(pool, skill_id)
+        .await
+        .map_err(|e| format!("Failed to get skill: {}", e))?
+        .ok_or_else(|| format!("Skill with id {} not found", skill_id))?;
+
+    process_single_dispatch_with_skill(&skill, target_dir, dispatch_method, pool).await
 }
 
