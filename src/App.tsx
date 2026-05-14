@@ -10,7 +10,13 @@ import { useConfigStore } from "./store/configStore";
 import Onboarding from "./pages/Onboarding";
 import { Skills } from "./pages/Skills";
 import { DispatchPage } from "./pages/Dispatch";
-import { Loader2, BookOpen, Send } from "lucide-react";
+import { SettingsPage } from "./pages/Settings";
+import {
+  Loader2,
+  BookOpen,
+  Send,
+  Settings as SettingsIcon,
+} from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 
 function Navigation() {
@@ -22,6 +28,11 @@ function Navigation() {
       path: "/dispatches",
       label: "Dispatches",
       icon: <Send className="h-4 w-4 mr-2" />,
+    },
+    {
+      path: "/settings",
+      label: "Settings",
+      icon: <SettingsIcon className="h-4 w-4 mr-2" />,
     },
   ];
 
@@ -77,6 +88,7 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<Skills />} />
           <Route path="/dispatches" element={<DispatchPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
       <Toaster />
