@@ -41,3 +41,8 @@ export interface CreateTargetDir {
   path: string;
   description?: string | null;
 }
+
+export interface BulkDispatchResult {
+  successful: Dispatch[];
+  errors: [string, string][]; // [skill_id, error_message]
+}

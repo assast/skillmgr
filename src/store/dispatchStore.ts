@@ -5,6 +5,8 @@ import {
   CreateTargetDir,
   Dispatch,
   SyncStatus,
+  BulkDispatchResult,
+  DispatchMethod,
 } from "../types/dispatch";
 
 interface DispatchStore {
@@ -20,6 +22,11 @@ interface DispatchStore {
   deleteTargetDir: (id: string) => Promise<void>;
   checkDispatchSync: (dispatchId: string) => Promise<SyncStatus>;
   syncDispatchedSkill: (dispatchId: string) => Promise<Dispatch>;
+  bulkDispatch: (
+    skillIds: string[],
+    targetDirId: string,
+    method: DispatchMethod,
+  ) => Promise<BulkDispatchResult>;
   clearError: () => void;
 }
 
@@ -126,6 +133,31 @@ export const useDispatchStore = create<DispatchStore>((set, get) => ({
         loading: false,
       }));
       return updatedDispatch;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  bulkDispatch: async (
+    skillIds: string[],
+    targetDirId: string,
+    method: DispatchMethod,
+  ) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await invoke<BulkDispatchResult>("bulk_dispatch", {
+        skillIds,
+        targetDirId,
+        dispatchMethod: method,
+      });
+      // Refresh dispatches list to include new ones
+      await get().fetchDispatches();
+      set({ loading: false });
+      return result;
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : String(error),

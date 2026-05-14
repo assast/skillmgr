@@ -326,7 +326,8 @@ fn main() {
             dispatch::dispatch_skill,
             dispatch::list_dispatches,
             dispatch::check_dispatch_sync,
-            dispatch::sync_dispatched_skill
+            dispatch::sync_dispatched_skill,
+            dispatch::bulk_dispatch
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

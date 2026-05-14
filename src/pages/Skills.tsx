@@ -18,10 +18,32 @@ import {
   Search,
   AlertCircle,
   Send,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DispatchDialog } from "../components/skills/DispatchDialog";
 import { Skill } from "../types/skill";
+import { useDispatchStore } from "@/store/dispatchStore";
+import { DispatchMethod } from "@/types/dispatch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { Loader2 } from "lucide-react";
 
 const Badge = ({
   children,
@@ -51,6 +73,17 @@ export function Skills() {
   } = useSkillStore();
   const [selectedSkill, setSelectedSkill] = useState<Skill | null>(null);
   const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [bulkDispatchDialogOpen, setBulkDispatchDialogOpen] = useState(false);
+  const [selectedTargetDirId, setSelectedTargetDirId] = useState<string>("");
+  const [selectedMethod, setSelectedMethod] = useState<DispatchMethod>(
+    DispatchMethod.Symlink,
+  );
+  const [isBulkDispatching, setIsBulkDispatching] = useState(false);
+
+  const { targetDirs, fetchTargetDirs, bulkDispatch } = useDispatchStore();
 
   useEffect(() => {
     fetchSkills();
@@ -62,6 +95,29 @@ export function Skills() {
       clearError();
     }
   }, [error, clearError]);
+
+  // Handle bulk dialog state
+  useEffect(() => {
+    if (bulkDispatchDialogOpen) {
+      fetchTargetDirs().catch((error) => {
+        toast.error(`Failed to fetch target directories: ${error.message}`);
+      });
+    }
+  }, [bulkDispatchDialogOpen, fetchTargetDirs]);
+
+  useEffect(() => {
+    if (
+      bulkDispatchDialogOpen &&
+      targetDirs.length > 0 &&
+      !selectedTargetDirId
+    ) {
+      setSelectedTargetDirId(targetDirs[0].id);
+    }
+    if (!bulkDispatchDialogOpen) {
+      setSelectedTargetDirId("");
+      setSelectedMethod(DispatchMethod.Symlink);
+    }
+  }, [bulkDispatchDialogOpen, targetDirs, selectedTargetDirId]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     const query = e.target.value;
@@ -96,6 +152,57 @@ export function Skills() {
     setDispatchDialogOpen(true);
   };
 
+  const toggleSkillSelection = (skillId: string) => {
+    setSelectedSkillIds((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(skillId)) {
+        newSet.delete(skillId);
+      } else {
+        newSet.add(skillId);
+      }
+      return newSet;
+    });
+  };
+
+  const clearSelection = () => {
+    setSelectedSkillIds(new Set());
+  };
+
+  const handleBulkDispatch = async () => {
+    if (selectedSkillIds.size === 0 || !selectedTargetDirId) {
+      toast.error("Please select a target directory");
+      return;
+    }
+
+    setIsBulkDispatching(true);
+    try {
+      const result = await bulkDispatch(
+        Array.from(selectedSkillIds),
+        selectedTargetDirId,
+        selectedMethod,
+      );
+
+      toast.success(
+        `Successfully dispatched ${result.successful.length} skills`,
+      );
+
+      if (result.errors.length > 0) {
+        toast.warning(`${result.errors.length} skills failed to dispatch`);
+        // Log errors for debugging
+        console.error("Bulk dispatch errors:", result.errors);
+      }
+
+      clearSelection();
+      setBulkDispatchDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        `Failed to bulk dispatch: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      setIsBulkDispatching(false);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "active":
@@ -127,19 +234,44 @@ export function Skills() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">Skills</h1>
-          <p className="text-gray-500">Manage your skill library</p>
+          <p className="text-gray-500">
+            {selectedSkillIds.size > 0
+              ? `${selectedSkillIds.size} skills selected`
+              : "Manage your skill library"}
+          </p>
         </div>
         <div className="flex gap-3">
-          <Button onClick={handleDiscover} disabled={loading}>
-            <RefreshCw
-              className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
-            />
-            Discover Skills
-          </Button>
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Skill
-          </Button>
+          {selectedSkillIds.size > 0 ? (
+            <>
+              <Button
+                variant="outline"
+                onClick={clearSelection}
+                disabled={loading}
+              >
+                Clear Selection
+              </Button>
+              <Button
+                onClick={() => setBulkDispatchDialogOpen(true)}
+                disabled={loading}
+              >
+                <Send className="mr-2 h-4 w-4" />
+                Bulk Dispatch ({selectedSkillIds.size})
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={handleDiscover} disabled={loading}>
+                <RefreshCw
+                  className={`mr-2 h-4 w-4 ${loading ? "animate-spin" : ""}`}
+                />
+                Discover Skills
+              </Button>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                Add Skill
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -188,9 +320,21 @@ export function Skills() {
             >
               <CardHeader>
                 <div className="flex justify-between items-start">
-                  <CardTitle className="text-xl font-semibold">
-                    {skill.name}
-                  </CardTitle>
+                  <div className="flex items-start gap-3">
+                    <button
+                      onClick={() => toggleSkillSelection(skill.id)}
+                      className="mt-1 focus:outline-none"
+                    >
+                      {selectedSkillIds.has(skill.id) ? (
+                        <CheckSquare className="h-5 w-5 text-blue-500" />
+                      ) : (
+                        <Square className="h-5 w-5 text-gray-400" />
+                      )}
+                    </button>
+                    <CardTitle className="text-xl font-semibold">
+                      {skill.name}
+                    </CardTitle>
+                  </div>
                   <Badge className={getStatusColor(skill.status)}>
                     {skill.status}
                   </Badge>
@@ -266,6 +410,107 @@ export function Skills() {
           ))}
         </div>
       )}
+
+      {/* Bulk Dispatch Dialog */}
+      <Dialog
+        open={bulkDispatchDialogOpen}
+        onOpenChange={setBulkDispatchDialogOpen}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Bulk Dispatch Skills</DialogTitle>
+            <DialogDescription>
+              Dispatch {selectedSkillIds.size} selected skills to a target
+              directory
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="bulk-target-directory">Target Directory</Label>
+              <Select
+                value={selectedTargetDirId}
+                onValueChange={setSelectedTargetDirId}
+                disabled={isBulkDispatching || targetDirs.length === 0}
+              >
+                <SelectTrigger id="bulk-target-directory">
+                  <SelectValue placeholder="Select a target directory" />
+                </SelectTrigger>
+                <SelectContent>
+                  {targetDirs.map((dir) => (
+                    <SelectItem key={dir.id} value={dir.id}>
+                      {dir.name} ({dir.path})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {targetDirs.length === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  No target directories configured
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Dispatch Method</Label>
+              <RadioGroup
+                value={selectedMethod}
+                onValueChange={(value) =>
+                  setSelectedMethod(value as DispatchMethod)
+                }
+                className="flex flex-col space-y-2"
+                disabled={isBulkDispatching}
+              >
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value={DispatchMethod.Symlink}
+                    id="bulk-symlink"
+                  />
+                  <Label htmlFor="bulk-symlink">Symlink (Recommended)</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem value={DispatchMethod.Copy} id="bulk-copy" />
+                  <Label htmlFor="bulk-copy">Copy</Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <RadioGroupItem
+                    value={DispatchMethod.Hardlink}
+                    id="bulk-hardlink"
+                  />
+                  <Label htmlFor="bulk-hardlink">Hardlink</Label>
+                </div>
+              </RadioGroup>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setBulkDispatchDialogOpen(false)}
+              disabled={isBulkDispatching}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkDispatch}
+              disabled={
+                isBulkDispatching ||
+                !selectedTargetDirId ||
+                selectedSkillIds.size === 0
+              }
+            >
+              {isBulkDispatching ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Dispatching {selectedSkillIds.size} skills...
+                </>
+              ) : (
+                `Dispatch ${selectedSkillIds.size} Skills`
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <DispatchDialog
         skill={selectedSkill}
