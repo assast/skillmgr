@@ -16,6 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
   Brain,
@@ -27,7 +28,11 @@ import {
   Upload,
   Save,
 } from "lucide-react";
-import { useSettingsStore, SyncConfig } from "@/store/settingsStore";
+import {
+  useSettingsStore,
+  SyncConfig,
+  ThemeConfig,
+} from "@/store/settingsStore";
 import { LLMConfig } from "@/types/llm";
 import { GitConfig } from "@/types/git";
 
@@ -36,6 +41,7 @@ export function SettingsPage() {
     llmConfig,
     gitConfig,
     syncConfig,
+    themeConfig,
     isLoading,
     loadLLMConfig,
     saveLLMConfig,
@@ -43,6 +49,8 @@ export function SettingsPage() {
     saveGitConfig,
     loadSyncConfig,
     saveSyncConfig,
+    loadThemeConfig,
+    saveThemeConfig,
   } = useSettingsStore();
   const [llmFormData, setLlmFormData] = useState<LLMConfig>({
     apiKey: "",
@@ -58,12 +66,17 @@ export function SettingsPage() {
     autoSyncEnabled: false,
     syncInterval: "daily",
   });
+  const [themeFormData, setThemeFormData] = useState<ThemeConfig>({
+    theme: "light",
+    language: "en",
+  });
 
   useEffect(() => {
     loadLLMConfig();
     loadGitConfig();
     loadSyncConfig();
-  }, [loadLLMConfig, loadGitConfig, loadSyncConfig]);
+    loadThemeConfig();
+  }, [loadLLMConfig, loadGitConfig, loadSyncConfig, loadThemeConfig]);
 
   useEffect(() => {
     if (llmConfig) {
@@ -82,6 +95,12 @@ export function SettingsPage() {
       setSyncFormData(syncConfig);
     }
   }, [syncConfig]);
+
+  useEffect(() => {
+    if (themeConfig) {
+      setThemeFormData(themeConfig);
+    }
+  }, [themeConfig]);
 
   const handleLlmSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -113,6 +132,18 @@ export function SettingsPage() {
     } catch (error) {
       toast.error(
         `Failed to save Sync configuration: ${(error as Error).message}`,
+      );
+    }
+  };
+
+  const handleThemeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await saveThemeConfig(themeFormData);
+      toast.success("Theme & Language configuration saved successfully");
+    } catch (error) {
+      toast.error(
+        `Failed to save Theme & Language configuration: ${(error as Error).message}`,
       );
     }
   };
@@ -364,10 +395,52 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-gray-500">
-              Theme and language settings will be available here in a future
-              update.
-            </p>
+            <form onSubmit={handleThemeSubmit} className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="theme-switch">Dark Mode</Label>
+                  <p className="text-sm text-gray-500">
+                    Toggle between light and dark themes
+                  </p>
+                </div>
+                <Switch
+                  id="theme-switch"
+                  checked={themeFormData.theme === "dark"}
+                  onCheckedChange={(checked) =>
+                    setThemeFormData({
+                      ...themeFormData,
+                      theme: checked ? "dark" : "light",
+                    })
+                  }
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="language-select">Language</Label>
+                <Select
+                  value={themeFormData.language}
+                  onValueChange={(value: "zh" | "en") =>
+                    setThemeFormData({ ...themeFormData, language: value })
+                  }
+                >
+                  <SelectTrigger id="language-select">
+                    <SelectValue placeholder="Select language" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="en">English</SelectItem>
+                    <SelectItem value="zh">中文</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500">
+                  Choose your preferred language
+                </p>
+              </div>
+
+              <Button type="submit" disabled={isLoading}>
+                <Save className="mr-2 h-4 w-4" />
+                {isLoading ? "Saving..." : "Save Theme & Language"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
 

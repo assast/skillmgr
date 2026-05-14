@@ -8,10 +8,16 @@ export interface SyncConfig {
   syncInterval: "daily" | "weekly" | "monthly" | "never";
 }
 
+export interface ThemeConfig {
+  theme: "light" | "dark";
+  language: "zh" | "en";
+}
+
 interface SettingsState {
   llmConfig: LLMConfig | null;
   gitConfig: GitConfig | null;
   syncConfig: SyncConfig | null;
+  themeConfig: ThemeConfig | null;
   isLoading: boolean;
   error: string | null;
   loadLLMConfig: () => Promise<void>;
@@ -20,12 +26,15 @@ interface SettingsState {
   saveGitConfig: (config: GitConfig) => Promise<void>;
   loadSyncConfig: () => Promise<void>;
   saveSyncConfig: (config: SyncConfig) => Promise<void>;
+  loadThemeConfig: () => Promise<void>;
+  saveThemeConfig: (config: ThemeConfig) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   llmConfig: null,
   gitConfig: null,
   syncConfig: null,
+  themeConfig: null,
   isLoading: false,
   error: null,
 
@@ -158,6 +167,60 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       });
 
       set({ syncConfig: config });
+    } catch (error) {
+      set({ error: (error as Error).message });
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  loadThemeConfig: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const theme = await invoke<string>("get_config", {
+        key: "app.theme",
+      }).catch(() => "light");
+      const language = await invoke<string>("get_config", {
+        key: "app.language",
+      }).catch(() => "en");
+
+      // Apply theme to DOM
+      const root = window.document.documentElement;
+      root.classList.remove("light", "dark");
+      root.classList.add(theme || "light");
+
+      set({
+        themeConfig: {
+          theme: (theme || "light") as "light" | "dark",
+          language: (language || "en") as "zh" | "en",
+        },
+      });
+    } catch (error) {
+      set({ error: (error as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  saveThemeConfig: async (config: ThemeConfig) => {
+    set({ isLoading: true, error: null });
+    try {
+      await invoke("set_config", {
+        key: "app.theme",
+        value: config.theme,
+      });
+      await invoke("set_config", {
+        key: "app.language",
+        value: config.language,
+      });
+
+      // Apply theme to DOM immediately
+      const root = window.document.documentElement;
+      root.classList.remove("light", "dark");
+      root.classList.add(config.theme);
+
+      set({ themeConfig: config });
     } catch (error) {
       set({ error: (error as Error).message });
       throw error;

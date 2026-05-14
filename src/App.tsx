@@ -7,6 +7,7 @@ import {
   useLocation,
 } from "react-router-dom";
 import { useConfigStore } from "./store/configStore";
+import { useSettingsStore } from "./store/settingsStore";
 import Onboarding from "./pages/Onboarding";
 import { Skills } from "./pages/Skills";
 import { DispatchPage } from "./pages/Dispatch";
@@ -37,9 +38,11 @@ function Navigation() {
   ];
 
   return (
-    <nav className="bg-white border-b border-gray-200 px-4 py-3">
+    <nav className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 py-3">
       <div className="container mx-auto flex items-center gap-6">
-        <h1 className="text-xl font-bold text-gray-900 mr-8">SkillVault</h1>
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white mr-8">
+          SkillVault
+        </h1>
         {navItems.map((item) => (
           <NavLink
             key={item.path}
@@ -47,8 +50,8 @@ function Navigation() {
             className={({ isActive }) =>
               `flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                  ? "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                  : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-white"
               }`
             }
           >
@@ -63,16 +66,18 @@ function Navigation() {
 
 function AppContent() {
   const { basePath, isLoading, getBasePath } = useConfigStore();
+  const { loadThemeConfig } = useSettingsStore();
 
   useEffect(() => {
     getBasePath();
-  }, [getBasePath]);
+    loadThemeConfig();
+  }, [getBasePath, loadThemeConfig]);
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-blue-50">
-        <Loader2 className="w-8 h-8 text-blue-600 animate-spin mb-4" />
-        <p className="text-gray-600">加载中...</p>
+      <div className="flex flex-col items-center justify-center h-screen bg-gradient-to-br from-slate-50 to-blue-50 dark:from-gray-900 dark:to-gray-800">
+        <Loader2 className="w-8 h-8 text-blue-600 dark:text-blue-400 animate-spin mb-4" />
+        <p className="text-gray-600 dark:text-gray-400">加载中...</p>
       </div>
     );
   }
@@ -82,7 +87,7 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-950">
       <Navigation />
       <main>
         <Routes>
