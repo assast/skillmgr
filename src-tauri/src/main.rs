@@ -100,6 +100,76 @@ async fn save_llm_config(
 }
 
 // ------------------------------
+// Git Config Commands
+// ------------------------------
+
+/// Get Git configuration
+#[tauri::command]
+async fn get_git_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<serde_json::Value, String> {
+    use crate::db::config::Config;
+    
+    let username = Config::get(&pool, "git.global.username")
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let email = Config::get(&pool, "git.global.email")
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    let ssh_key_path = Config::get(&pool, "git.global.ssh_key_path")
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    Ok(serde_json::json!({
+        "username": username,
+        "email": email,
+        "sshKeyPath": ssh_key_path
+    }))
+}
+
+/// Save Git configuration
+#[tauri::command]
+async fn save_git_config(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+    username: &str,
+    email: &str,
+    ssh_key_path: Option<&str>,
+) -> Result<(), String> {
+    use crate::db::config::Config;
+    
+    // Save username
+    Config::set(&pool, "git.global.username", username)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    // Save email
+    Config::set(&pool, "git.global.email", email)
+        .await
+        .map_err(|e| e.to_string())?;
+    
+    // Save SSH key path (if provided)
+    if let Some(ssh_key_path) = ssh_key_path {
+        if !ssh_key_path.is_empty() {
+            Config::set(&pool, "git.global.ssh_key_path", ssh_key_path)
+                .await
+                .map_err(|e| e.to_string())?;
+        } else {
+            Config::delete(&pool, "git.global.ssh_key_path")
+                .await
+                .map_err(|e| e.to_string())?;
+        }
+    } else {
+        Config::delete(&pool, "git.global.ssh_key_path")
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    
+    Ok(())
+}
+
+// ------------------------------
 // Dispatch Template Commands
 // ------------------------------
 
@@ -508,6 +578,8 @@ fn main() {
             delete_config,
             get_llm_config,
             save_llm_config,
+            get_git_config,
+            save_git_config,
             add_repository,
             list_repositories,
             get_repository,

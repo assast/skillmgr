@@ -29,33 +29,65 @@ import {
 } from "lucide-react";
 import { useSettingsStore } from "@/store/settingsStore";
 import { LLMConfig } from "@/types/llm";
+import { GitConfig } from "@/types/git";
 
 export function SettingsPage() {
-  const { llmConfig, isLoading, loadLLMConfig, saveLLMConfig } =
-    useSettingsStore();
-  const [formData, setFormData] = useState<LLMConfig>({
+  const {
+    llmConfig,
+    gitConfig,
+    isLoading,
+    loadLLMConfig,
+    saveLLMConfig,
+    loadGitConfig,
+    saveGitConfig,
+  } = useSettingsStore();
+  const [llmFormData, setLlmFormData] = useState<LLMConfig>({
     apiKey: "",
     baseUrl: "",
     model: "gpt-4o",
   });
+  const [gitFormData, setGitFormData] = useState<GitConfig>({
+    username: "",
+    email: "",
+    sshKeyPath: "",
+  });
 
   useEffect(() => {
     loadLLMConfig();
-  }, [loadLLMConfig]);
+    loadGitConfig();
+  }, [loadLLMConfig, loadGitConfig]);
 
   useEffect(() => {
     if (llmConfig) {
-      setFormData(llmConfig);
+      setLlmFormData(llmConfig);
     }
   }, [llmConfig]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  useEffect(() => {
+    if (gitConfig) {
+      setGitFormData(gitConfig);
+    }
+  }, [gitConfig]);
+
+  const handleLlmSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await saveLLMConfig(formData);
+      await saveLLMConfig(llmFormData);
       toast.success("LLM configuration saved successfully");
     } catch (error) {
       toast.error(`Failed to save configuration: ${(error as Error).message}`);
+    }
+  };
+
+  const handleGitSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await saveGitConfig(gitFormData);
+      toast.success("Git configuration saved successfully");
+    } catch (error) {
+      toast.error(
+        `Failed to save Git configuration: ${(error as Error).message}`,
+      );
     }
   };
 
@@ -80,7 +112,7 @@ export function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleLlmSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="provider">Provider</Label>
                 <Select defaultValue="openai" disabled>
@@ -102,9 +134,9 @@ export function SettingsPage() {
                   id="apiKey"
                   type="password"
                   placeholder="sk-..."
-                  value={formData.apiKey}
+                  value={llmFormData.apiKey}
                   onChange={(e) =>
-                    setFormData({ ...formData, apiKey: e.target.value })
+                    setLlmFormData({ ...llmFormData, apiKey: e.target.value })
                   }
                   required
                 />
@@ -115,10 +147,10 @@ export function SettingsPage() {
                 <Input
                   id="baseUrl"
                   placeholder="https://api.openai.com/v1"
-                  value={formData.baseUrl || ""}
+                  value={llmFormData.baseUrl || ""}
                   onChange={(e) =>
-                    setFormData({
-                      ...formData,
+                    setLlmFormData({
+                      ...llmFormData,
                       baseUrl: e.target.value || undefined,
                     })
                   }
@@ -134,9 +166,9 @@ export function SettingsPage() {
                 <Input
                   id="model"
                   placeholder="gpt-4o"
-                  value={formData.model}
+                  value={llmFormData.model}
                   onChange={(e) =>
-                    setFormData({ ...formData, model: e.target.value })
+                    setLlmFormData({ ...llmFormData, model: e.target.value })
                   }
                   required
                 />
@@ -161,13 +193,70 @@ export function SettingsPage() {
               <CardTitle>Git Configuration</CardTitle>
             </div>
             <CardDescription>
-              Set up Git credentials and repository settings
+              Set up Git global credentials for repository operations
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-gray-500">
-              Git settings will be available here in a future update.
-            </p>
+            <form onSubmit={handleGitSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="gitUsername">Global Username</Label>
+                <Input
+                  id="gitUsername"
+                  placeholder="John Doe"
+                  value={gitFormData.username}
+                  onChange={(e) =>
+                    setGitFormData({ ...gitFormData, username: e.target.value })
+                  }
+                  required
+                />
+                <p className="text-xs text-gray-500">
+                  This will be used as the commit author name for all Git
+                  operations
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="gitEmail">Global Email</Label>
+                <Input
+                  id="gitEmail"
+                  type="email"
+                  placeholder="john@example.com"
+                  value={gitFormData.email}
+                  onChange={(e) =>
+                    setGitFormData({ ...gitFormData, email: e.target.value })
+                  }
+                  required
+                />
+                <p className="text-xs text-gray-500">
+                  This will be used as the commit author email for all Git
+                  operations
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="sshKeyPath">SSH Key Path (Optional)</Label>
+                <Input
+                  id="sshKeyPath"
+                  placeholder="~/.ssh/id_rsa"
+                  value={gitFormData.sshKeyPath || ""}
+                  onChange={(e) =>
+                    setGitFormData({
+                      ...gitFormData,
+                      sshKeyPath: e.target.value || undefined,
+                    })
+                  }
+                />
+                <p className="text-xs text-gray-500">
+                  Path to your private SSH key for Git authentication. Leave
+                  empty to use system default.
+                </p>
+              </div>
+
+              <Button type="submit" disabled={isLoading}>
+                <Save className="mr-2 h-4 w-4" />
+                {isLoading ? "Saving..." : "Save Git Configuration"}
+              </Button>
+            </form>
           </CardContent>
         </Card>
 

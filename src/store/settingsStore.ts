@@ -1,17 +1,22 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { LLMConfig } from "../types/llm";
+import { GitConfig } from "../types/git";
 
 interface SettingsState {
   llmConfig: LLMConfig | null;
+  gitConfig: GitConfig | null;
   isLoading: boolean;
   error: string | null;
   loadLLMConfig: () => Promise<void>;
   saveLLMConfig: (config: LLMConfig) => Promise<void>;
+  loadGitConfig: () => Promise<void>;
+  saveGitConfig: (config: GitConfig) => Promise<void>;
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
   llmConfig: null,
+  gitConfig: null,
   isLoading: false,
   error: null,
 
@@ -65,6 +70,47 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       });
 
       set({ llmConfig: config });
+    } catch (error) {
+      set({ error: (error as Error).message });
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  loadGitConfig: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const config = await invoke<{
+        username: string | null;
+        email: string | null;
+        sshKeyPath: string | null;
+      }>("get_git_config");
+
+      set({
+        gitConfig: {
+          username: config.username || "",
+          email: config.email || "",
+          sshKeyPath: config.sshKeyPath || undefined,
+        },
+      });
+    } catch (error) {
+      set({ error: (error as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  saveGitConfig: async (config: GitConfig) => {
+    set({ isLoading: true, error: null });
+    try {
+      await invoke("save_git_config", {
+        username: config.username,
+        email: config.email,
+        sshKeyPath: config.sshKeyPath,
+      });
+
+      set({ gitConfig: config });
     } catch (error) {
       set({ error: (error as Error).message });
       throw error;
