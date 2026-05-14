@@ -1,0 +1,77 @@
+/// Create all tables SQL (for direct initialization if needed)
+pub const INIT_SQL: &str = r#"
+-- Create repositories table
+CREATE TABLE IF NOT EXISTS repositories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    url TEXT,
+    path TEXT NOT NULL UNIQUE,
+    source_type TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    auth_type TEXT,
+    auth_config TEXT,
+    branch TEXT,
+    last_synced_at DATETIME,
+    last_checked_at DATETIME,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create skills table
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT,
+    repository_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    version TEXT,
+    author TEXT,
+    type TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    local_path TEXT NOT NULL,
+    usage TEXT,
+    tags TEXT,
+    dependencies TEXT,
+    llm_analyzed BOOLEAN NOT NULL DEFAULT 0,
+    quality_score INTEGER,
+    status TEXT NOT NULL,
+    first_discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE,
+    UNIQUE(repository_id, path)
+);
+
+-- Create dispatch table
+CREATE TABLE IF NOT EXISTS dispatch (
+    id TEXT PRIMARY KEY,
+    target_dir TEXT NOT NULL,
+    skill_id TEXT NOT NULL,
+    method TEXT NOT NULL, -- symlink / copy / hardlink
+    source_path TEXT NOT NULL,
+    dest_path TEXT NOT NULL,
+    dispatched_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_synced_at DATETIME,
+    sync_status TEXT NOT NULL, -- synced / outdated / conflict / error
+    error_message TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+);
+
+-- Create config table
+CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_skills_repository_id ON skills(repository_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_skill_id ON dispatch(skill_id);
+CREATE INDEX IF NOT EXISTS idx_dispatch_target_dir ON dispatch(target_dir);
+CREATE INDEX IF NOT EXISTS idx_dispatch_sync_status ON dispatch(sync_status);
+"#;

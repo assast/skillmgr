@@ -36,7 +36,13 @@
   },
   "plugins": {
     "sql": {
-      "preload": []
+      "preload": [
+        {
+          "driver": "sqlite",
+          "name": "default",
+          "path": "$APPDATA/.skillvault/vault.db"
+        }
+      ]
     },
     "fs": {},
     "dialog": {},
