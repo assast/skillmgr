@@ -1,22 +1,22 @@
-use serde::{Deserialize, Serialize};
-use sqlx::SqlitePool;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sqlx::FromRow;
+use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, FromRow, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Skill {
     pub id: String,
     pub name: String,
-    pub description: Option<String>,
-    pub repository_id: String,
-    pub path: String,
-    pub version: Option<String>,
-    pub author: Option<String>,
+    #[serde(rename = "type")]
     pub r#type: String,
     pub source_type: String,
+    pub repository_id: Option<String>,
     pub local_path: String,
+    pub description: Option<String>,
     pub usage: Option<String>,
-    pub tags: Option<String>,
-    pub dependencies: Option<String>,
+    pub tags: Vec<String>,
+    pub dependencies: Vec<String>,
     pub llm_analyzed: bool,
     pub quality_score: Option<i32>,
     pub status: String,
@@ -25,126 +25,261 @@ pub struct Skill {
     pub updated_at: DateTime<Utc>,
 }
 
-impl Skill {
-    /// Create a new skill
-    pub async fn create(
-        pool: &SqlitePool,
-        name: &str,
-        description: Option<&str>,
-        repository_id: &str,
-        path: &str,
-        version: Option<&str>,
-        author: Option<&str>,
-        r#type: &str,
-        source_type: &str,
-        local_path: &str,
-        status: &str,
-    ) -> Result<Self, Box<dyn std::error::Error>> {
-        let skill = sqlx::query_as::<_, Skill>(
-            "INSERT INTO skills (name, description, repository_id, path, version, author, type, source_type, local_path, llm_analyzed, status) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, false, ?10) 
-             RETURNING *"
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSkill {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub source_type: String,
+    pub repository_id: Option<String>,
+    pub local_path: String,
+    pub description: Option<String>,
+    pub usage: Option<String>,
+    pub tags: Vec<String>,
+    pub dependencies: Vec<String>,
+    pub llm_analyzed: Option<bool>,
+    pub quality_score: Option<i32>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSkill {
+    pub name: Option<String>,
+    #[serde(rename = "type")]
+    pub r#type: Option<String>,
+    pub source_type: Option<String>,
+    pub repository_id: Option<String>,
+    pub local_path: Option<String>,
+    pub description: Option<String>,
+    pub usage: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub dependencies: Option<Vec<String>>,
+    pub llm_analyzed: Option<bool>,
+    pub quality_score: Option<i32>,
+    pub status: Option<String>,
+}
+
+/// Create the skills table if it doesn't exist
+pub async fn create_table(pool: &sqlx::SqlitePool) -> Result<()> {
+    sqlx::query!(
+        r#"
+        CREATE TABLE IF NOT EXISTS skills (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            type TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            repository_id TEXT,
+            local_path TEXT NOT NULL,
+            description TEXT,
+            usage TEXT,
+            tags TEXT NOT NULL DEFAULT '[]',
+            dependencies TEXT NOT NULL DEFAULT '[]',
+            llm_analyzed BOOLEAN NOT NULL DEFAULT 0,
+            quality_score INTEGER,
+            status TEXT NOT NULL,
+            first_discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (repository_id) REFERENCES repositories(id) ON DELETE CASCADE
         )
-        .bind(name)
-        .bind(description)
-        .bind(repository_id)
-        .bind(path)
-        .bind(version)
-        .bind(author)
-        .bind(r#type)
-        .bind(source_type)
-        .bind(local_path)
-        .bind(status)
-        .fetch_one(pool)
-        .await?;
-        
-        Ok(skill)
-    }
-    
-    /// Get all skills
-    pub async fn get_all(pool: &SqlitePool) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
-        let skills = sqlx::query_as::<_, Skill>("SELECT * FROM skills")
-            .fetch_all(pool)
-            .await?;
-        Ok(skills)
-    }
-    
-    /// Get skills by repository id
-    pub async fn get_by_repository_id(pool: &SqlitePool, repo_id: &str) -> Result<Vec<Self>, Box<dyn std::error::Error>> {
-        let skills = sqlx::query_as::<_, Skill>("SELECT * FROM skills WHERE repository_id = ?1")
-            .bind(repo_id)
-            .fetch_all(pool)
-            .await?;
-        Ok(skills)
-    }
-    
-    /// Get skill by id
-    pub async fn get_by_id(pool: &SqlitePool, id: &str) -> Result<Option<Self>, Box<dyn std::error::Error>> {
-        let skill = sqlx::query_as::<_, Skill>("SELECT * FROM skills WHERE id = ?1")
-            .bind(id)
-            .fetch_optional(pool)
-            .await?;
-        Ok(skill)
-    }
-    
-    /// Update skill
-    pub async fn update(
-        &self,
-        pool: &SqlitePool,
-        name: Option<&str>,
-        description: Option<&str>,
-        path: Option<&str>,
-        version: Option<&str>,
-        author: Option<&str>,
-        r#type: Option<&str>,
-        usage: Option<&str>,
-        tags: Option<&str>,
-        dependencies: Option<&str>,
-        llm_analyzed: Option<bool>,
-        quality_score: Option<i32>,
-        status: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query(
-            "UPDATE skills SET 
-                name = COALESCE(?1, name), 
-                description = COALESCE(?2, description), 
-                path = COALESCE(?3, path), 
-                version = COALESCE(?4, version), 
-                author = COALESCE(?5, author),
-                type = COALESCE(?6, type),
-                usage = COALESCE(?7, usage),
-                tags = COALESCE(?8, tags),
-                dependencies = COALESCE(?9, dependencies),
-                llm_analyzed = COALESCE(?10, llm_analyzed),
-                quality_score = COALESCE(?11, quality_score),
-                status = COALESCE(?12, status),
-                updated_at = CURRENT_TIMESTAMP 
-            WHERE id = ?13"
+        "#
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Create a new skill
+pub async fn create_skill(pool: &sqlx::SqlitePool, create: CreateSkill) -> Result<Skill> {
+    let id = Uuid::new_v4().to_string();
+    let now = Utc::now();
+    let llm_analyzed = create.llm_analyzed.unwrap_or(false);
+
+    let tags_json = serde_json::to_string(&create.tags)?;
+    let dependencies_json = serde_json::to_string(&create.dependencies)?;
+
+    sqlx::query!(
+        r#"
+        INSERT INTO skills (
+            id, name, type, source_type, repository_id, local_path, description, usage,
+            tags, dependencies, llm_analyzed, quality_score, status, first_discovered_at,
+            created_at, updated_at
         )
-        .bind(name)
-        .bind(description)
-        .bind(path)
-        .bind(version)
-        .bind(author)
-        .bind(r#type)
-        .bind(usage)
-        .bind(tags)
-        .bind(dependencies)
-        .bind(llm_analyzed)
-        .bind(quality_score)
-        .bind(status)
-        .bind(&self.id)
-        .execute(pool)
-        .await?;
-        Ok(())
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        "#,
+        id,
+        create.name,
+        create.r#type,
+        create.source_type,
+        create.repository_id,
+        create.local_path,
+        create.description,
+        create.usage,
+        tags_json,
+        dependencies_json,
+        llm_analyzed,
+        create.quality_score,
+        create.status,
+        now,
+        now,
+        now
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(Skill {
+        id,
+        name: create.name,
+        r#type: create.r#type,
+        source_type: create.source_type,
+        repository_id: create.repository_id,
+        local_path: create.local_path,
+        description: create.description,
+        usage: create.usage,
+        tags: create.tags,
+        dependencies: create.dependencies,
+        llm_analyzed,
+        quality_score: create.quality_score,
+        status: create.status,
+        first_discovered_at: now,
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+/// Get a skill by ID
+pub async fn get_skill_by_id(pool: &sqlx::SqlitePool, id: &str) -> Result<Option<Skill>> {
+    let row = sqlx::query!(
+        r#"
+        SELECT * FROM skills WHERE id = ?
+        "#,
+        id
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    let tags: Vec<String> = serde_json::from_str(&row.tags)?;
+    let dependencies: Vec<String> = serde_json::from_str(&row.dependencies)?;
+
+    Ok(Some(Skill {
+        id: row.id,
+        name: row.name,
+        r#type: row.r#type,
+        source_type: row.source_type,
+        repository_id: row.repository_id,
+        local_path: row.local_path,
+        description: row.description,
+        usage: row.usage,
+        tags,
+        dependencies,
+        llm_analyzed: row.llm_analyzed,
+        quality_score: row.quality_score,
+        status: row.status,
+        first_discovered_at: row.first_discovered_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+    }))
+}
+
+/// Get all skills
+pub async fn get_all_skills(pool: &sqlx::SqlitePool) -> Result<Vec<Skill>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT * FROM skills
+        "#
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut skills = Vec::with_capacity(rows.len());
+    for row in rows {
+        let tags: Vec<String> = serde_json::from_str(&row.tags)?;
+        let dependencies: Vec<String> = serde_json::from_str(&row.dependencies)?;
+
+        skills.push(Skill {
+            id: row.id,
+            name: row.name,
+            r#type: row.r#type,
+            source_type: row.source_type,
+            repository_id: row.repository_id,
+            local_path: row.local_path,
+            description: row.description,
+            usage: row.usage,
+            tags,
+            dependencies,
+            llm_analyzed: row.llm_analyzed,
+            quality_score: row.quality_score,
+            status: row.status,
+            first_discovered_at: row.first_discovered_at,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        });
     }
-    
-    /// Delete skill
-    pub async fn delete(&self, pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
-        sqlx::query("DELETE FROM skills WHERE id = ?1")
-            .bind(&self.id)
-            .execute(pool)
-            .await?;
-        Ok(())
-    }
+
+    Ok(skills)
+}
+
+/// Update a skill
+pub async fn update_skill(pool: &sqlx::SqlitePool, id: &str, update: UpdateSkill) -> Result<Option<Skill>> {
+    let tags_json = update.tags.as_ref().map(|t| serde_json::to_string(t)).transpose()?;
+    let dependencies_json = update.dependencies.as_ref().map(|d| serde_json::to_string(d)).transpose()?;
+
+    sqlx::query!(
+        r#"
+        UPDATE skills
+        SET
+            name = COALESCE(?, name),
+            type = COALESCE(?, type),
+            source_type = COALESCE(?, source_type),
+            repository_id = COALESCE(?, repository_id),
+            local_path = COALESCE(?, local_path),
+            description = COALESCE(?, description),
+            usage = COALESCE(?, usage),
+            tags = COALESCE(?, tags),
+            dependencies = COALESCE(?, dependencies),
+            llm_analyzed = COALESCE(?, llm_analyzed),
+            quality_score = COALESCE(?, quality_score),
+            status = COALESCE(?, status),
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+        "#,
+        update.name,
+        update.r#type,
+        update.source_type,
+        update.repository_id,
+        update.local_path,
+        update.description,
+        update.usage,
+        tags_json,
+        dependencies_json,
+        update.llm_analyzed,
+        update.quality_score,
+        update.status,
+        id
+    )
+    .execute(pool)
+    .await?;
+
+    get_skill_by_id(pool, id).await
+}
+
+/// Delete a skill
+pub async fn delete_skill(pool: &sqlx::SqlitePool, id: &str) -> Result<bool> {
+    let result = sqlx::query!(
+        r#"
+        DELETE FROM skills WHERE id = ?
+        "#,
+        id
+    )
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
 }
