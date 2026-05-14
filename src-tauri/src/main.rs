@@ -4,6 +4,7 @@
 use tauri::Manager;
 
 mod db;
+mod config;
 
 // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
 #[tauri::command]
@@ -46,7 +47,12 @@ fn main() {
             
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            config::base_path::get_base_path_command,
+            config::base_path::set_base_path_command,
+            config::base_path::init_base_directory_command
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
