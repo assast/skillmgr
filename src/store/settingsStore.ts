@@ -15,11 +15,17 @@ export interface ThemeConfig {
   language: "zh" | "en";
 }
 
+export interface NotificationConfig {
+  soundEnabled: boolean;
+  desktopNotificationsEnabled: boolean;
+}
+
 interface SettingsState {
   llmConfig: LLMConfig | null;
   gitConfig: GitConfig | null;
   syncConfig: SyncConfig | null;
   themeConfig: ThemeConfig | null;
+  notificationConfig: NotificationConfig | null;
   isLoading: boolean;
   error: string | null;
   loadLLMConfig: () => Promise<void>;
@@ -30,6 +36,8 @@ interface SettingsState {
   saveSyncConfig: (config: SyncConfig) => Promise<void>;
   loadThemeConfig: () => Promise<void>;
   saveThemeConfig: (config: ThemeConfig) => Promise<void>;
+  loadNotificationConfig: () => Promise<void>;
+  saveNotificationConfig: (config: NotificationConfig) => Promise<void>;
   exportDatabase: () => Promise<void>;
   importDatabase: () => Promise<void>;
 }
@@ -39,6 +47,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   gitConfig: null,
   syncConfig: null,
   themeConfig: null,
+  notificationConfig: null,
   isLoading: false,
   error: null,
 
@@ -290,6 +299,50 @@ export const useSettingsStore = create<SettingsState>((set) => ({
 
       // Call backend import command
       await invoke("import_db", { backupPath: selectedPath });
+    } catch (error) {
+      set({ error: (error as Error).message });
+      throw error;
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  loadNotificationConfig: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const soundEnabled = await invoke<boolean>("get_config", {
+        key: "notifications.sound_enabled",
+      }).catch(() => true);
+      const desktopNotificationsEnabled = await invoke<boolean>("get_config", {
+        key: "notifications.desktop_enabled",
+      }).catch(() => false);
+
+      set({
+        notificationConfig: {
+          soundEnabled,
+          desktopNotificationsEnabled,
+        },
+      });
+    } catch (error) {
+      set({ error: (error as Error).message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
+
+  saveNotificationConfig: async (config: NotificationConfig) => {
+    set({ isLoading: true, error: null });
+    try {
+      await invoke("set_config", {
+        key: "notifications.sound_enabled",
+        value: config.soundEnabled,
+      });
+      await invoke("set_config", {
+        key: "notifications.desktop_enabled",
+        value: config.desktopNotificationsEnabled,
+      });
+
+      set({ notificationConfig: config });
     } catch (error) {
       set({ error: (error as Error).message });
       throw error;

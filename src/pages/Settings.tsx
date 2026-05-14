@@ -27,11 +27,14 @@ import {
   Download,
   Upload,
   Save,
+  Keyboard,
+  Bell,
 } from "lucide-react";
 import {
   useSettingsStore,
   SyncConfig,
   ThemeConfig,
+  NotificationConfig,
 } from "@/store/settingsStore";
 import { LLMConfig } from "@/types/llm";
 import { GitConfig } from "@/types/git";
@@ -42,6 +45,7 @@ export function SettingsPage() {
     gitConfig,
     syncConfig,
     themeConfig,
+    notificationConfig,
     isLoading,
     loadLLMConfig,
     saveLLMConfig,
@@ -51,6 +55,8 @@ export function SettingsPage() {
     saveSyncConfig,
     loadThemeConfig,
     saveThemeConfig,
+    loadNotificationConfig,
+    saveNotificationConfig,
     exportDatabase,
     importDatabase,
   } = useSettingsStore();
@@ -72,13 +78,25 @@ export function SettingsPage() {
     theme: "light",
     language: "en",
   });
+  const [notificationFormData, setNotificationFormData] =
+    useState<NotificationConfig>({
+      soundEnabled: true,
+      desktopNotificationsEnabled: false,
+    });
 
   useEffect(() => {
     loadLLMConfig();
     loadGitConfig();
     loadSyncConfig();
     loadThemeConfig();
-  }, [loadLLMConfig, loadGitConfig, loadSyncConfig, loadThemeConfig]);
+    loadNotificationConfig();
+  }, [
+    loadLLMConfig,
+    loadGitConfig,
+    loadSyncConfig,
+    loadThemeConfig,
+    loadNotificationConfig,
+  ]);
 
   useEffect(() => {
     if (llmConfig) {
@@ -103,6 +121,12 @@ export function SettingsPage() {
       setThemeFormData(themeConfig);
     }
   }, [themeConfig]);
+
+  useEffect(() => {
+    if (notificationConfig) {
+      setNotificationFormData(notificationConfig);
+    }
+  }, [notificationConfig]);
 
   const handleLlmSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -167,6 +191,18 @@ export function SettingsPage() {
       );
     } catch (error) {
       toast.error(`Failed to restore backup: ${(error as Error).message}`);
+    }
+  };
+
+  const handleNotificationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      await saveNotificationConfig(notificationFormData);
+      toast.success("Notification configuration saved successfully");
+    } catch (error) {
+      toast.error(
+        `Failed to save Notification configuration: ${(error as Error).message}`,
+      );
     }
   };
 
@@ -463,6 +499,140 @@ export function SettingsPage() {
                 {isLoading ? "Saving..." : "Save Theme & Language"}
               </Button>
             </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Bell className="h-5 w-5 text-pink-500" />
+              <CardTitle>Notifications</CardTitle>
+            </div>
+            <CardDescription>
+              Configure notification preferences and alerts
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleNotificationSubmit} className="space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="sound-notifications">
+                    Sound Notifications
+                  </Label>
+                  <p className="text-sm text-gray-500">
+                    Play sound effects for notifications and alerts
+                  </p>
+                </div>
+                <Switch
+                  id="sound-notifications"
+                  checked={notificationFormData.soundEnabled}
+                  onCheckedChange={(checked) =>
+                    setNotificationFormData({
+                      ...notificationFormData,
+                      soundEnabled: checked,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <Label htmlFor="desktop-notifications">
+                    Desktop Notifications
+                  </Label>
+                  <p className="text-sm text-gray-500">
+                    Show system desktop notifications (requires permission)
+                  </p>
+                </div>
+                <Switch
+                  id="desktop-notifications"
+                  checked={notificationFormData.desktopNotificationsEnabled}
+                  onCheckedChange={(checked) =>
+                    setNotificationFormData({
+                      ...notificationFormData,
+                      desktopNotificationsEnabled: checked,
+                    })
+                  }
+                />
+              </div>
+
+              <Button type="submit" disabled={isLoading}>
+                <Save className="mr-2 h-4 w-4" />
+                {isLoading ? "Saving..." : "Save Notifications"}
+              </Button>
+            </form>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Keyboard className="h-5 w-5 text-indigo-500" />
+              <CardTitle>Keyboard Shortcuts</CardTitle>
+            </div>
+            <CardDescription>
+              Available keyboard shortcuts for faster navigation
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
+                <span className="text-gray-700 dark:text-gray-300">
+                  Navigate to Skills
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    ⌘
+                  </kbd>
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    1
+                  </kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
+                <span className="text-gray-700 dark:text-gray-300">
+                  Navigate to Dispatches
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    ⌘
+                  </kbd>
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    2
+                  </kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
+                <span className="text-gray-700 dark:text-gray-300">
+                  Navigate to Settings
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    ⌘
+                  </kbd>
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    3
+                  </kbd>
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-gray-700 dark:text-gray-300">
+                  Search Skills
+                </span>
+                <div className="flex items-center gap-1">
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    ⌘
+                  </kbd>
+                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
+                    K
+                  </kbd>
+                </div>
+              </div>
+            </div>
+            <p className="mt-4 text-sm text-gray-500">
+              Keyboard shortcuts are system-wide and will work even when the app
+              is in the background. Custom shortcuts coming in a future update.
+            </p>
           </CardContent>
         </Card>
 
