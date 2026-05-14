@@ -10,6 +10,114 @@ mod skills;
 mod llm;
 mod dispatch;
 
+use crate::db::dispatch_template::{DispatchTemplate, CreateDispatchTemplateInput, UpdateDispatchTemplateInput};
+use crate::dispatch::DispatchMethod;
+
+// ------------------------------
+// Dispatch Template Commands
+// ------------------------------
+
+/// Create a new dispatch template
+#[tauri::command]
+async fn create_dispatch_template(
+    name: &str,
+    description: Option<&str>,
+    skill_ids: Vec<String>,
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<DispatchTemplate, String> {
+    let input = CreateDispatchTemplateInput {
+        name: name.to_string(),
+        description: description.map(|s| s.to_string()),
+        skill_ids,
+    };
+    
+    DispatchTemplate::create(&pool, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get all dispatch templates
+#[tauri::command]
+async fn list_dispatch_templates(
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<Vec<DispatchTemplate>, String> {
+    DispatchTemplate::get_all(&pool)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get a dispatch template by ID
+#[tauri::command]
+async fn get_dispatch_template(
+    id: &str,
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<Option<DispatchTemplate>, String> {
+    DispatchTemplate::get_by_id(&pool, id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Update a dispatch template
+#[tauri::command]
+async fn update_dispatch_template(
+    id: &str,
+    name: Option<&str>,
+    description: Option<&str>,
+    skill_ids: Option<Vec<String>>,
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<Option<DispatchTemplate>, String> {
+    let input = UpdateDispatchTemplateInput {
+        name: name.map(|s| s.to_string()),
+        description: description.map(|s| s.to_string()),
+        skill_ids,
+    };
+    
+    DispatchTemplate::update(&pool, id, input)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Delete a dispatch template
+#[tauri::command]
+async fn delete_dispatch_template(
+    id: &str,
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<bool, String> {
+    DispatchTemplate::delete(&pool, id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Dispatch all skills in a template to a target directory
+#[tauri::command]
+async fn dispatch_template(
+    template_id: &str,
+    target_dir: &str,
+    method: &str,
+    pool: tauri::State<'_, sqlx::SqlitePool>,
+) -> Result<dispatch::BulkDispatchResult, String> {
+    // Get the template
+    let template = DispatchTemplate::get_by_id(&pool, template_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Template with id {} not found", template_id))?;
+    
+    // Parse dispatch method
+    let dispatch_method = match method {
+        "symlink" => DispatchMethod::Symlink,
+        "copy" => DispatchMethod::Copy,
+        "hardlink" => DispatchMethod::Hardlink,
+        _ => return Err(format!("Invalid dispatch method: {}", method)),
+    };
+    
+    // Get skill IDs from template
+    let skill_ids = template.skill_ids_vec()
+        .map_err(|e| format!("Failed to parse skill IDs from template: {}", e))?;
+    
+    // Use bulk dispatch to dispatch all skills
+    dispatch::bulk_dispatch(skill_ids, target_dir, dispatch_method, pool).await
+}
+
 use std::path::Path;
 use std::fs;
 
@@ -327,7 +435,13 @@ fn main() {
             dispatch::list_dispatches,
             dispatch::check_dispatch_sync,
             dispatch::sync_dispatched_skill,
-            dispatch::bulk_dispatch
+            dispatch::bulk_dispatch,
+            create_dispatch_template,
+            list_dispatch_templates,
+            get_dispatch_template,
+            update_dispatch_template,
+            delete_dispatch_template,
+            dispatch_template
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

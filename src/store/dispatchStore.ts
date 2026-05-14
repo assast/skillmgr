@@ -7,11 +7,15 @@ import {
   SyncStatus,
   BulkDispatchResult,
   DispatchMethod,
+  DispatchTemplate,
+  CreateDispatchTemplateInput,
+  UpdateDispatchTemplateInput,
 } from "../types/dispatch";
 
 interface DispatchStore {
   targetDirs: TargetDir[];
   dispatches: Dispatch[];
+  templates: DispatchTemplate[];
   loading: boolean;
   error: string | null;
 
@@ -27,12 +31,30 @@ interface DispatchStore {
     targetDirId: string,
     method: DispatchMethod,
   ) => Promise<BulkDispatchResult>;
+
+  // Template actions
+  fetchTemplates: () => Promise<void>;
+  createTemplate: (
+    input: CreateDispatchTemplateInput,
+  ) => Promise<DispatchTemplate>;
+  updateTemplate: (
+    id: string,
+    input: UpdateDispatchTemplateInput,
+  ) => Promise<DispatchTemplate | null>;
+  deleteTemplate: (id: string) => Promise<boolean>;
+  dispatchTemplate: (
+    templateId: string,
+    targetDirId: string,
+    method: DispatchMethod,
+  ) => Promise<BulkDispatchResult>;
+
   clearError: () => void;
 }
 
 export const useDispatchStore = create<DispatchStore>((set, get) => ({
   targetDirs: [],
   dispatches: [],
+  templates: [],
   loading: false,
   error: null,
 
@@ -153,6 +175,102 @@ export const useDispatchStore = create<DispatchStore>((set, get) => ({
         skillIds,
         targetDirId,
         dispatchMethod: method,
+      });
+      // Refresh dispatches list to include new ones
+      await get().fetchDispatches();
+      set({ loading: false });
+      return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  // Template actions
+  fetchTemplates: async () => {
+    set({ loading: true, error: null });
+    try {
+      const templates = await invoke<DispatchTemplate[]>(
+        "list_dispatch_templates",
+      );
+      set({ templates, loading: false });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  createTemplate: async (input: CreateDispatchTemplateInput) => {
+    set({ loading: true, error: null });
+    try {
+      const template = await invoke<DispatchTemplate>(
+        "create_dispatch_template",
+        input,
+      );
+      await get().fetchTemplates();
+      return template;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  updateTemplate: async (id: string, input: UpdateDispatchTemplateInput) => {
+    set({ loading: true, error: null });
+    try {
+      const template = await invoke<DispatchTemplate | null>(
+        "update_dispatch_template",
+        { id, ...input },
+      );
+      await get().fetchTemplates();
+      return template;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteTemplate: async (id: string) => {
+    set({ loading: true, error: null });
+    try {
+      const success = await invoke<boolean>("delete_dispatch_template", { id });
+      set((state) => ({
+        templates: state.templates.filter((t) => t.id !== id),
+        loading: false,
+      }));
+      return success;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  dispatchTemplate: async (
+    templateId: string,
+    targetDirId: string,
+    method: DispatchMethod,
+  ) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await invoke<BulkDispatchResult>("dispatch_template", {
+        templateId,
+        targetDir: targetDirId,
+        method,
       });
       // Refresh dispatches list to include new ones
       await get().fetchDispatches();

@@ -3,6 +3,7 @@ pub mod repository;
 pub mod skill;
 pub mod dispatch;
 pub mod config;
+pub mod dispatch_template;
 
 use tauri::{AppHandle, Manager};
 use sqlx::{SqlitePool, Executor};

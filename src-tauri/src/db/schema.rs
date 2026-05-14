@@ -79,10 +79,21 @@ CREATE TABLE IF NOT EXISTS target_dirs (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create dispatch templates table
+CREATE TABLE IF NOT EXISTS dispatch_templates (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    skill_ids TEXT NOT NULL, -- JSON array of skill IDs
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create indexes for better performance
 CREATE INDEX IF NOT EXISTS idx_skills_repository_id ON skills(repository_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_skill_id ON dispatch(skill_id);
 CREATE INDEX IF NOT EXISTS idx_dispatch_target_dir ON dispatch(target_dir);
 CREATE INDEX IF NOT EXISTS idx_dispatch_sync_status ON dispatch(sync_status);
 CREATE INDEX IF NOT EXISTS idx_target_dirs_path ON target_dirs(path);
+CREATE INDEX IF NOT EXISTS idx_dispatch_templates_name ON dispatch_templates(name);
 "#;

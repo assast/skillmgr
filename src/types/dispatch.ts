@@ -46,3 +46,25 @@ export interface BulkDispatchResult {
   successful: Dispatch[];
   errors: [string, string][]; // [skill_id, error_message]
 }
+
+export interface DispatchTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  skill_ids: string; // JSON string of skill IDs array
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateDispatchTemplateInput {
+  [key: string]: unknown;
+  name: string;
+  description?: string | null;
+  skill_ids: string[];
+}
+
+export interface UpdateDispatchTemplateInput {
+  name?: string | null;
+  description?: string | null;
+  skill_ids?: string[] | null;
+}

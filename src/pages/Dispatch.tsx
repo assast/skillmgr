@@ -11,6 +11,24 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   RefreshCw,
   FolderOpen,
@@ -19,6 +37,9 @@ import {
   Clock,
   AlertTriangle,
   Trash2,
+  Plus,
+  Send,
+  Edit,
 } from "lucide-react";
 
 const Badge = ({
@@ -76,11 +97,14 @@ export function DispatchPage() {
   const {
     targetDirs,
     dispatches,
+    templates,
     loading,
     fetchTargetDirs,
     fetchDispatches,
+    fetchTemplates,
     checkDispatchSync,
     syncDispatchedSkill,
+    deleteTemplate,
   } = useDispatchStore();
   const { skills, fetchSkills } = useSkillStore();
 
@@ -88,7 +112,8 @@ export function DispatchPage() {
     fetchTargetDirs().catch(() => {});
     fetchSkills().catch(() => {});
     fetchDispatches().catch(() => {});
-  }, [fetchTargetDirs, fetchSkills, fetchDispatches]);
+    fetchTemplates().catch(() => {});
+  }, [fetchTargetDirs, fetchSkills, fetchDispatches, fetchTemplates]);
 
   const getSkillName = (skillId: string) => {
     const skill = skills.find((s) => s.id === skillId);
@@ -123,6 +148,203 @@ export function DispatchPage() {
           />
           Refresh
         </Button>
+      </div>
+
+      {/* Templates Section */}
+      <div className="mb-12">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Dispatch Templates</h2>
+            <p className="text-gray-500">
+              Save and reuse groups of skills for quick dispatch
+            </p>
+          </div>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button>
+                <Plus className="mr-2 h-4 w-4" />
+                New Template
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Create Dispatch Template</DialogTitle>
+                <DialogDescription>
+                  Save a group of skills to dispatch together later.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4 py-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Template Name</label>
+                  <Input placeholder="e.g., Frontend Project Setup" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">
+                    Description (optional)
+                  </label>
+                  <Textarea placeholder="Describe what this template is used for..." />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Select Skills</label>
+                  <div className="border rounded-md p-4 max-h-60 overflow-y-auto space-y-2">
+                    {skills.map((skill) => (
+                      <div key={skill.id} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id={`skill-${skill.id}`}
+                          className="h-4 w-4 rounded border-gray-300"
+                        />
+                        <label
+                          htmlFor={`skill-${skill.id}`}
+                          className="text-sm"
+                        >
+                          {skill.name}
+                        </label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="submit">Create Template</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+
+        {templates.length === 0 ? (
+          <div className="border rounded-lg p-8 text-center">
+            <FolderOpen className="h-10 w-10 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium mb-2">No templates yet</h3>
+            <p className="text-gray-500 mb-4">
+              Create your first template to save groups of skills for quick
+              dispatch.
+            </p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {templates.map((template) => {
+              const skillIds = JSON.parse(template.skill_ids) as string[];
+              return (
+                <Card
+                  key={template.id}
+                  className="hover:shadow-md transition-shadow"
+                >
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <CardTitle className="text-xl font-semibold">
+                        {template.name}
+                      </CardTitle>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                          onClick={() => deleteTemplate(template.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                    {template.description && (
+                      <CardDescription className="mt-1">
+                        {template.description}
+                      </CardDescription>
+                    )}
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                      <p className="font-medium mb-2">
+                        Skills ({skillIds.length}):
+                      </p>
+                      <ul className="space-y-1 max-h-24 overflow-y-auto">
+                        {skillIds.map((skillId) => (
+                          <li key={skillId} className="text-xs">
+                            • {getSkillName(skillId)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </CardContent>
+                  <CardFooter className="border-t pt-4">
+                    <Dialog>
+                      <DialogTrigger asChild>
+                        <Button className="w-full">
+                          <Send className="mr-2 h-4 w-4" />
+                          Dispatch Template
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>
+                            Dispatch Template: {template.name}
+                          </DialogTitle>
+                          <DialogDescription>
+                            Select target directory and dispatch method to
+                            deploy all skills in this template.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <div className="space-y-4 py-4">
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">
+                              Target Directory
+                            </label>
+                            <Select>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select target directory" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {targetDirs.map((dir) => (
+                                  <SelectItem key={dir.id} value={dir.id}>
+                                    {dir.name} ({dir.path})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">
+                              Dispatch Method
+                            </label>
+                            <Select defaultValue={DispatchMethod.Symlink}>
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={DispatchMethod.Symlink}>
+                                  Symlink
+                                </SelectItem>
+                                <SelectItem value={DispatchMethod.Copy}>
+                                  Copy
+                                </SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        <DialogFooter>
+                          <Button
+                            onClick={async () => {
+                              // Handle dispatch
+                            }}
+                          >
+                            Dispatch All Skills
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </CardFooter>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {loading && dispatches.length === 0 && (
