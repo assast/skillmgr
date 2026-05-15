@@ -303,13 +303,17 @@ async fn update_repository(
     id: &str,
     name: Option<&str>,
     skills_path: Option<&str>,
+    url: Option<&str>,
+    branch: Option<&str>,
+    auth_type: Option<&str>,
+    auth_config: Option<&str>,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
-    // Verify repository exists
     db::repository::Repository::get_by_id(&pool, id)
         .await.map_err(|e| e.to_string())?
         .ok_or_else(|| "Repository not found".to_string())?;
 
+    // Update basic fields
     if let Some(name) = name {
         sqlx::query("UPDATE repositories SET name = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(name).bind(id)
@@ -320,10 +324,33 @@ async fn update_repository(
             .bind(sp).bind(id)
             .execute(pool.inner()).await.map_err(|e| e.to_string())?;
     }
+    if let Some(u) = url {
+        sqlx::query("UPDATE repositories SET url = ?1, path = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+            .bind(u).bind(id)
+            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(b) = branch {
+        sqlx::query("UPDATE repositories SET branch = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+            .bind(b).bind(id)
+            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(at) = auth_type {
+        sqlx::query("UPDATE repositories SET auth_type = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+            .bind(at).bind(id)
+            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+    }
+    if let Some(ac) = auth_config {
+        sqlx::query("UPDATE repositories SET auth_config = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+            .bind(ac).bind(id)
+            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+    }
 
-    db::repository::Repository::get_by_id(&pool, id)
+    // Reload after updates
+    let updated = db::repository::Repository::get_by_id(&pool, id)
         .await.map_err(|e| e.to_string())?
-        .ok_or_else(|| "Repository not found after update".to_string())
+        .ok_or_else(|| "Repository not found after update".to_string())?;
+
+    Ok(updated)
 }
 
 #[tauri::command]
