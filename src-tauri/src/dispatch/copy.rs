@@ -1,8 +1,8 @@
-use std::path::PathBuf;
+use std::path::Path;
 use anyhow::Result;
 
 /// Recursively copy a directory from source to destination
-pub fn copy_dir(source: &PathBuf, destination: &PathBuf) -> Result<(), String> {
+pub fn copy_dir(source: &Path, destination: &Path) -> Result<(), String> {
     // Create destination directory
     std::fs::create_dir_all(destination)
         .map_err(|e| format!("Failed to create destination directory: {}", e))?;

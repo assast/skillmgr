@@ -15,21 +15,6 @@ mod test_utils;
 use crate::db::dispatch_template::{DispatchTemplate, CreateDispatchTemplateInput, UpdateDispatchTemplateInput};
 use crate::db::dispatch::DispatchMethod;
 
-fn copy_dir_sync(source: &std::path::Path, target: &std::path::Path) -> Result<(), String> {
-    std::fs::create_dir_all(target).map_err(|e| format!("Failed to create directory: {}", e))?;
-    for entry in std::fs::read_dir(source).map_err(|e| format!("Failed to read directory: {}", e))? {
-        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-        let src = entry.path();
-        let dst = target.join(entry.file_name());
-        if src.is_dir() {
-            copy_dir_sync(&src, &dst)?;
-        } else {
-            std::fs::copy(&src, &dst).map_err(|e| format!("Failed to copy file: {}", e))?;
-        }
-    }
-    Ok(())
-}
-
 // ------------------------------
 // General Config Commands
 // ------------------------------
@@ -130,11 +115,6 @@ async fn set_git_executable_path(
 
 use std::path::Path;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 /// Add repository
 #[tauri::command]
 async fn add_repository(
@@ -191,21 +171,28 @@ async fn add_repository(
             ).await;
             match result {
                 Ok(_) => {
-                    let _ = sqlx::query("UPDATE repositories SET status = 'synced', updated_at = CURRENT_TIMESTAMP WHERE id = ?1")
+                    if let Err(e) = sqlx::query("UPDATE repositories SET status = 'synced', updated_at = CURRENT_TIMESTAMP WHERE id = ?1")
                         .bind(&repo_id)
                         .execute(&pool_clone)
-                        .await;
-                    // Discover skills after successful clone
+                        .await
+                    {
+                        eprintln!("Failed to update repo {} status: {}", repo_id, e);
+                    }
                     if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
-                        let _ = skills::discovery::scan_repository(&pool_clone, &repo, false).await;
+                        if let Err(e) = skills::discovery::scan_repository(&pool_clone, &repo, false).await {
+                            eprintln!("Failed to scan repo {} for skills: {}", repo_id, e);
+                        }
                     }
                 }
                 Err(e) => {
-                    let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                    if let Err(db_err) = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
                         .bind(e.to_string())
                         .bind(&repo_id)
                         .execute(&pool_clone)
-                        .await;
+                        .await
+                    {
+                        eprintln!("Failed to update repo {} error status: {}", repo_id, db_err);
+                    }
                 }
             }
         });
@@ -236,7 +223,7 @@ async fn add_repository(
         let should_copy = copy.unwrap_or(false);
         tauri::async_runtime::spawn(async move {
             let result = if should_copy {
-                copy_dir_sync(Path::new(&src_owned), Path::new(&lp_owned))
+                dispatch::copy::copy_dir(Path::new(&src_owned), Path::new(&lp_owned))
             } else {
                 #[cfg(unix)]
                 {
@@ -251,21 +238,28 @@ async fn add_repository(
             };
             match result {
                 Ok(_) => {
-                    let _ = sqlx::query("UPDATE repositories SET status = 'synced', updated_at = CURRENT_TIMESTAMP WHERE id = ?1")
+                    if let Err(e) = sqlx::query("UPDATE repositories SET status = 'synced', updated_at = CURRENT_TIMESTAMP WHERE id = ?1")
                         .bind(&repo_id)
                         .execute(&pool_clone)
-                        .await;
-                    // Discover skills after successful copy/symlink
+                        .await
+                    {
+                        eprintln!("Failed to update repo {} status: {}", repo_id, e);
+                    }
                     if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
-                        let _ = skills::discovery::scan_repository(&pool_clone, &repo, false).await;
+                        if let Err(e) = skills::discovery::scan_repository(&pool_clone, &repo, false).await {
+                            eprintln!("Failed to scan repo {} for skills: {}", repo_id, e);
+                        }
                     }
                 }
                 Err(e) => {
-                    let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                    if let Err(db_err) = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
                         .bind(e)
                         .bind(&repo_id)
                         .execute(&pool_clone)
-                        .await;
+                        .await
+                    {
+                        eprintln!("Failed to update repo {} error status: {}", repo_id, db_err);
+                    }
                 }
             }
         });
@@ -311,7 +305,8 @@ async fn update_repository(
     skills_path: Option<&str>,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
-    let _repo = db::repository::Repository::get_by_id(&pool, id)
+    // Verify repository exists
+    db::repository::Repository::get_by_id(&pool, id)
         .await.map_err(|e| e.to_string())?
         .ok_or_else(|| "Repository not found".to_string())?;
 
@@ -346,7 +341,7 @@ async fn sync_repository(
 
         repo.update(&pool, None, None, None, None, None, Some("syncing"), None).await.map_err(|e| e.to_string())?;
 
-        match copy_dir_sync(source_path, local_path) {
+        match dispatch::copy::copy_dir(source_path, local_path) {
             Ok(_) => {
                 repo.update(&pool, None, None, None, None, None, Some("synced"), None).await.map_err(|e| e.to_string())?;
                 let _ = skills::discovery::scan_repository(pool.inner(), &repo, false).await;
@@ -533,7 +528,6 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             // Config
             get_config,
             set_config,
@@ -572,6 +566,7 @@ fn main() {
             dispatch::delete_target_dir,
             dispatch::dispatch_skill,
             dispatch::list_dispatches,
+            dispatch::delete_dispatch,
             dispatch::check_dispatch_sync,
             dispatch::sync_dispatched_skill,
             dispatch::bulk_dispatch,

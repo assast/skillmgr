@@ -1,7 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useDispatchStore } from "@/store/dispatchStore";
+import { toast } from "sonner";
 import { useSkillStore } from "@/store/skillStore";
-import { DispatchMethod, SyncStatus } from "@/types/dispatch";
+import {
+  DispatchMethod,
+  SyncStatus,
+  parseDispatchMethod,
+} from "@/types/dispatch";
 import {
   Card,
   CardContent,
@@ -88,8 +93,6 @@ const getMethodColor = (method: DispatchMethod) => {
       return "bg-blue-500/10 text-blue-600 border-blue-500/20";
     case DispatchMethod.Copy:
       return "bg-purple-500/10 text-purple-600 border-purple-500/20";
-    case DispatchMethod.Hardlink:
-      return "bg-gray-500/10 text-gray-600 border-gray-500/20";
   }
 };
 
@@ -104,9 +107,26 @@ export function DispatchPage() {
     fetchTemplates,
     checkDispatchSync,
     syncDispatchedSkill,
+    deleteDispatch,
     deleteTemplate,
+    createTemplate,
+    dispatchTemplate: dispatchTemplateAction,
   } = useDispatchStore();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const { skills, fetchSkills } = useSkillStore();
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [newTemplateDesc, setNewTemplateDesc] = useState("");
+  const [newTemplateSkills, setNewTemplateSkills] = useState<Set<string>>(
+    new Set(),
+  );
+  const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [dispatchingTemplateId, setDispatchingTemplateId] = useState<
+    string | null
+  >(null);
+  const [dispatchTargetDir, setDispatchTargetDir] = useState("");
+  const [dispatchMethod, setDispatchMethod] = useState<DispatchMethod>(
+    DispatchMethod.Symlink,
+  );
 
   useEffect(() => {
     fetchTargetDirs().catch(() => {});
@@ -135,6 +155,71 @@ export function DispatchPage() {
     }
   };
 
+  const handleDelete = async (dispatchId: string) => {
+    setDeletingId(dispatchId);
+    try {
+      await deleteDispatch(dispatchId);
+    } catch (error) {
+      console.error("Failed to delete dispatch:", error);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleCreateTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      toast.error("Template name is required");
+      return;
+    }
+    if (newTemplateSkills.size === 0) {
+      toast.error("Select at least one skill");
+      return;
+    }
+    try {
+      await createTemplate({
+        name: newTemplateName.trim(),
+        description: newTemplateDesc.trim() || undefined,
+        skill_ids: Array.from(newTemplateSkills),
+      });
+      toast.success("Template created");
+      setShowCreateDialog(false);
+      setNewTemplateName("");
+      setNewTemplateDesc("");
+      setNewTemplateSkills(new Set());
+    } catch (error) {
+      toast.error(`Failed to create template: ${(error as Error).message}`);
+    }
+  };
+
+  const handleDispatchTemplate = async () => {
+    if (!dispatchingTemplateId) return;
+    if (!dispatchTargetDir) {
+      toast.error("Please select a target directory");
+      return;
+    }
+    try {
+      const result = await dispatchTemplateAction(
+        dispatchingTemplateId,
+        dispatchTargetDir,
+        dispatchMethod,
+      );
+      if (result.errors.length > 0) {
+        toast.warning(
+          `Dispatched ${result.successful.length} skills, ${result.errors.length} failed`,
+        );
+      } else {
+        toast.success(
+          `Successfully dispatched ${result.successful.length} skills`,
+        );
+      }
+      setDispatchingTemplateId(null);
+      setDispatchTargetDir("");
+      setDispatchMethod(DispatchMethod.Symlink);
+    } catch (error) {
+      toast.error(`Dispatch failed: ${(error as Error).message}`);
+    }
+  };
+
   return (
     <div className="container mx-auto py-8 px-4">
       <div className="flex justify-between items-center mb-8">
@@ -159,7 +244,7 @@ export function DispatchPage() {
               Save and reuse groups of skills for quick dispatch
             </p>
           </div>
-          <Dialog>
+          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="mr-2 h-4 w-4" />
@@ -176,16 +261,26 @@ export function DispatchPage() {
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Template Name</label>
-                  <Input placeholder="e.g., Frontend Project Setup" />
+                  <Input
+                    value={newTemplateName}
+                    onChange={(e) => setNewTemplateName(e.target.value)}
+                    placeholder="e.g., Frontend Project Setup"
+                  />
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">
                     Description (optional)
                   </label>
-                  <Textarea placeholder="Describe what this template is used for..." />
+                  <Textarea
+                    value={newTemplateDesc}
+                    onChange={(e) => setNewTemplateDesc(e.target.value)}
+                    placeholder="Describe what this template is used for..."
+                  />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Select Skills</label>
+                  <label className="text-sm font-medium">
+                    Select Skills ({newTemplateSkills.size} selected)
+                  </label>
                   <div className="border border-white/30 rounded-xl bg-white/30 backdrop-blur-sm p-4 max-h-60 overflow-y-auto space-y-2">
                     {skills.map((skill) => (
                       <div key={skill.id} className="flex items-center gap-2">
@@ -193,6 +288,18 @@ export function DispatchPage() {
                           type="checkbox"
                           id={`skill-${skill.id}`}
                           className="h-4 w-4 rounded border-gray-300"
+                          checked={newTemplateSkills.has(skill.id)}
+                          onChange={(e) => {
+                            setNewTemplateSkills((prev) => {
+                              const next = new Set(prev);
+                              if (e.target.checked) {
+                                next.add(skill.id);
+                              } else {
+                                next.delete(skill.id);
+                              }
+                              return next;
+                            });
+                          }}
                         />
                         <label
                           htmlFor={`skill-${skill.id}`}
@@ -206,7 +313,7 @@ export function DispatchPage() {
                 </div>
               </div>
               <DialogFooter>
-                <Button type="submit">Create Template</Button>
+                <Button onClick={handleCreateTemplate}>Create Template</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -224,7 +331,12 @@ export function DispatchPage() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {templates.map((template) => {
-              const skillIds = JSON.parse(template.skill_ids) as string[];
+              let skillIds: string[];
+              try {
+                skillIds = JSON.parse(template.skill_ids);
+              } catch {
+                skillIds = [];
+              }
               return (
                 <Card key={template.id} className="hover:scale-[1.01]">
                   <CardHeader>
@@ -271,7 +383,18 @@ export function DispatchPage() {
                     </div>
                   </CardContent>
                   <CardFooter>
-                    <Dialog>
+                    <Dialog
+                      open={dispatchingTemplateId === template.id}
+                      onOpenChange={(open) => {
+                        if (open) {
+                          setDispatchingTemplateId(template.id);
+                        } else {
+                          setDispatchingTemplateId(null);
+                          setDispatchTargetDir("");
+                          setDispatchMethod(DispatchMethod.Symlink);
+                        }
+                      }}
+                    >
                       <DialogTrigger asChild>
                         <Button className="w-full">
                           <Send className="mr-2 h-4 w-4" />
@@ -293,7 +416,10 @@ export function DispatchPage() {
                             <label className="text-sm font-medium">
                               Target Directory
                             </label>
-                            <Select>
+                            <Select
+                              value={dispatchTargetDir}
+                              onValueChange={setDispatchTargetDir}
+                            >
                               <SelectTrigger>
                                 <SelectValue placeholder="Select target directory" />
                               </SelectTrigger>
@@ -310,7 +436,12 @@ export function DispatchPage() {
                             <label className="text-sm font-medium">
                               Dispatch Method
                             </label>
-                            <Select defaultValue={DispatchMethod.Symlink}>
+                            <Select
+                              value={dispatchMethod}
+                              onValueChange={(v) =>
+                                setDispatchMethod(parseDispatchMethod(v))
+                              }
+                            >
                               <SelectTrigger>
                                 <SelectValue />
                               </SelectTrigger>
@@ -326,11 +457,7 @@ export function DispatchPage() {
                           </div>
                         </div>
                         <DialogFooter>
-                          <Button
-                            onClick={async () => {
-                              // Handle dispatch
-                            }}
-                          >
+                          <Button onClick={handleDispatchTemplate}>
                             Dispatch All Skills
                           </Button>
                         </DialogFooter>
@@ -443,7 +570,8 @@ export function DispatchPage() {
                     variant="ghost"
                     size="sm"
                     className="text-red-500 hover:text-red-600 hover:bg-red-50/50"
-                    disabled
+                    disabled={loading || deletingId === dispatch.id}
+                    onClick={() => handleDelete(dispatch.id)}
                   >
                     <Trash2 className="h-4 w-4 mr-1" />
                     Remove

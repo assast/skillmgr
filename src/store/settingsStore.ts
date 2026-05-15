@@ -89,7 +89,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       await invoke("set_git_executable_path", { path });
       const gitConfig = get().gitConfig;
       set({
-        gitConfig: { ...gitConfig!, executablePath: path },
+        gitConfig: {
+          detectedPath: gitConfig?.detectedPath ?? null,
+          executablePath: path,
+        },
         isLoading: false,
       });
     } catch (error) {

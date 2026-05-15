@@ -20,7 +20,7 @@ import { toast } from "sonner";
 import { DispatchDialog } from "../components/skills/DispatchDialog";
 import { Skill } from "../types/skill";
 import { useDispatchStore } from "@/store/dispatchStore";
-import { DispatchMethod } from "@/types/dispatch";
+import { DispatchMethod, parseDispatchMethod } from "@/types/dispatch";
 import {
   Dialog,
   DialogContent,
@@ -481,7 +481,7 @@ export function Skills() {
               <RadioGroup
                 value={selectedMethod}
                 onValueChange={(value) =>
-                  setSelectedMethod(value as DispatchMethod)
+                  setSelectedMethod(parseDispatchMethod(value))
                 }
                 className="flex flex-col space-y-2"
                 disabled={isBulkDispatching}
@@ -496,13 +496,6 @@ export function Skills() {
                 <div className="flex items-center space-x-2">
                   <RadioGroupItem value={DispatchMethod.Copy} id="bulk-copy" />
                   <Label htmlFor="bulk-copy">Copy</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem
-                    value={DispatchMethod.Hardlink}
-                    id="bulk-hardlink"
-                  />
-                  <Label htmlFor="bulk-hardlink">Hardlink</Label>
                 </div>
               </RadioGroup>
             </div>

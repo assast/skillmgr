@@ -556,23 +556,12 @@ export function SettingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">
-                  Current version: 0.1.0
+                  Current version: {__APP_VERSION__}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Updates are installed automatically when available
+                  Automatic updates are coming soon
                 </p>
               </div>
-              <Button
-                onClick={async () => {
-                  toast.info("Checking for updates...");
-                  await new Promise((r) => setTimeout(r, 1500));
-                  toast.success("You are already using the latest version!");
-                }}
-                disabled={isLoading}
-              >
-                <RefreshCw className="mr-2 h-4 w-4" />
-                Check for Updates
-              </Button>
             </div>
           </CardContent>
         </Card>

@@ -107,6 +107,40 @@ pub async fn list_dispatches(
         .map_err(|e| format!("Failed to list dispatches: {}", e))
 }
 
+/// Delete a dispatch record and clean up the dispatched file/symlink
+#[tauri::command]
+pub async fn delete_dispatch(
+    dispatch_id: &str,
+    pool: State<'_, SqlitePool>,
+) -> Result<bool, String> {
+    let dispatch = Dispatch::get_by_id(&pool, dispatch_id)
+        .await
+        .map_err(|e| format!("Failed to get dispatch: {}", e))?
+        .ok_or_else(|| format!("Dispatch with id {} not found", dispatch_id))?;
+
+    let dest_path = PathBuf::from(&dispatch.dest_path);
+    if dest_path.exists() {
+        match dispatch.method {
+            DispatchMethod::Symlink => {
+                std::fs::remove_file(&dest_path)
+                    .or_else(|_| std::fs::remove_dir_all(&dest_path))
+                    .map_err(|e| format!("Failed to remove symlink: {}", e))?;
+            }
+            DispatchMethod::Copy => {
+                std::fs::remove_dir_all(&dest_path)
+                    .map_err(|e| format!("Failed to remove copied files: {}", e))?;
+            }
+            DispatchMethod::Hardlink => {
+                return Err("Hardlink dispatch method is not supported yet".to_string());
+            }
+        }
+    }
+
+    Dispatch::delete(&pool, dispatch_id)
+        .await
+        .map_err(|e| format!("Failed to delete dispatch record: {}", e))
+}
+
 /// Bulk dispatch result containing successful dispatches and errors
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BulkDispatchResult {

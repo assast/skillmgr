@@ -109,6 +109,22 @@ pub async fn scan_repository(
     };
 
     let base = Path::new(&repo.local_path);
+
+    // Validate skills_path to prevent path traversal
+    if !repo.skills_path.is_empty() && repo.skills_path != "skills" {
+        let candidate = base.join(&repo.skills_path);
+        let canonical_base = base.canonicalize().unwrap_or_else(|_| base.to_path_buf());
+        if let Ok(canonical_candidate) = candidate.canonicalize() {
+            if !canonical_candidate.starts_with(&canonical_base) {
+                result.errors.push(format!(
+                    "Invalid skills_path '{}': path traversal detected",
+                    repo.skills_path
+                ));
+                return Ok(result);
+            }
+        }
+    }
+
     let scan_path = if repo.skills_path.is_empty() || repo.skills_path == "skills" {
         let skills_dir = base.join("skills");
         if skills_dir.is_dir() {

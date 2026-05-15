@@ -120,7 +120,9 @@ export const useRepositoryStore = create<RepositoryState>((set) => ({
       );
       set({ skillCounts: counts });
     } catch (error) {
-      console.error("Failed to load skill counts:", error);
+      set({
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   },
 

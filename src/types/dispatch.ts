@@ -1,7 +1,13 @@
 export enum DispatchMethod {
   Symlink = "symlink",
   Copy = "copy",
-  Hardlink = "hardlink",
+}
+
+export function parseDispatchMethod(value: string): DispatchMethod {
+  if (Object.values(DispatchMethod).includes(value as DispatchMethod)) {
+    return value as DispatchMethod;
+  }
+  return DispatchMethod.Symlink;
 }
 
 export enum SyncStatus {

@@ -145,7 +145,29 @@ pub async fn sync_dispatched_skill(
     }
 
     match dispatch.method {
-        DispatchMethod::Symlink => {}
+        DispatchMethod::Symlink => {
+            // Symlinks point to the source path directly, so if the source
+            // changed the symlink already reflects it. Just verify the link
+            // target matches.
+            let link_target = std::fs::read_link(&dest_path)
+                .map_err(|e| format!("Symlink is broken: {}", e))?;
+            if link_target != source_path {
+                // Re-link if the target diverged
+                std::fs::remove_file(&dest_path)
+                    .or_else(|_| std::fs::remove_dir_all(&dest_path))
+                    .map_err(|e| format!("Failed to remove stale link: {}", e))?;
+                #[cfg(unix)]
+                {
+                    std::os::unix::fs::symlink(&source_path, &dest_path)
+                        .map_err(|e| format!("Failed to re-create symlink: {}", e))?;
+                }
+                #[cfg(windows)]
+                {
+                    std::os::windows::fs::symlink_dir(&source_path, &dest_path)
+                        .map_err(|e| format!("Failed to re-create symlink: {}", e))?;
+                }
+            }
+        }
         DispatchMethod::Copy => {
             std::fs::remove_dir_all(&dest_path)
                 .map_err(|e| format!("Failed to remove existing destination directory: {}", e))?;

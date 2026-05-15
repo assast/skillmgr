@@ -26,6 +26,7 @@ interface DispatchStore {
   deleteTargetDir: (id: string) => Promise<void>;
   checkDispatchSync: (dispatchId: string) => Promise<SyncStatus>;
   syncDispatchedSkill: (dispatchId: string) => Promise<Dispatch>;
+  deleteDispatch: (dispatchId: string) => Promise<boolean>;
   bulkDispatch: (
     skillIds: string[],
     targetDirId: string,
@@ -276,6 +277,26 @@ export const useDispatchStore = create<DispatchStore>((set, get) => ({
       await get().fetchDispatches();
       set({ loading: false });
       return result;
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : String(error),
+        loading: false,
+      });
+      throw error;
+    }
+  },
+
+  deleteDispatch: async (dispatchId: string) => {
+    set({ loading: true, error: null });
+    try {
+      const success = await invoke<boolean>("delete_dispatch", {
+        dispatchId,
+      });
+      set((state) => ({
+        dispatches: state.dispatches.filter((d) => d.id !== dispatchId),
+        loading: false,
+      }));
+      return success;
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : String(error),

@@ -141,13 +141,6 @@ export function DispatchDialog({
                   <RadioGroupItem value={DispatchMethod.Copy} id="copy" />
                   <Label htmlFor="copy">Copy</Label>
                 </div>
-                <div className="flex items-center space-x-2">
-                  <RadioGroupItem
-                    value={DispatchMethod.Hardlink}
-                    id="hardlink"
-                  />
-                  <Label htmlFor="hardlink">Hardlink</Label>
-                </div>
               </RadioGroup>
             </div>
           </div>

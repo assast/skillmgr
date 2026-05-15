@@ -250,4 +250,12 @@ impl Dispatch {
         map_row_to_dispatch(&row)
     }
 
+    /// Delete a dispatch record by ID
+    pub async fn delete(pool: &SqlitePool, id: &str) -> Result<bool> {
+        let result = sqlx::query("DELETE FROM dispatch WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
 }
