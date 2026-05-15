@@ -7,12 +7,14 @@ interface RepositoryState {
   repositories: Repository[];
   loading: boolean;
   error: string | null;
+  skillCounts: Record<string, number>;
   getRepositories: () => Promise<void>;
   getRepository: (id: string) => Promise<Repository | null>;
   addRepository: (data: CreateRepositoryRequest) => Promise<Repository>;
   deleteRepository: (id: string) => Promise<void>;
   syncRepository: (id: string) => Promise<Repository>;
   syncAllRepositories: () => Promise<Repository[]>;
+  getSkillCounts: () => Promise<void>;
   clearError: () => void;
 }
 
@@ -20,6 +22,7 @@ export const useRepositoryStore = create<RepositoryState>((set) => ({
   repositories: [],
   loading: false,
   error: null,
+  skillCounts: {},
 
   getRepositories: async () => {
     set({ loading: true, error: null });
@@ -107,6 +110,17 @@ export const useRepositoryStore = create<RepositoryState>((set) => ({
     } catch (error) {
       set({ error: (error as Error).message, loading: false });
       throw error;
+    }
+  },
+
+  getSkillCounts: async () => {
+    try {
+      const counts = await invoke<Record<string, number>>(
+        "get_repository_skill_counts",
+      );
+      set({ skillCounts: counts });
+    } catch (error) {
+      console.error("Failed to load skill counts:", error);
     }
   },
 
