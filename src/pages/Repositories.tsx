@@ -222,9 +222,35 @@ function EditRepoForm({
   onSave: () => void;
   onCancel: () => void;
 }) {
+  const isRemote = repo.source_type !== "local";
   const [name, setName] = useState(repo.name);
   const [skillsPath, setSkillsPath] = useState(repo.skills_path);
+  const [url, setUrl] = useState(repo.url ?? "");
+  const [branch, setBranch] = useState(repo.branch ?? "");
+  const [authType, setAuthType] = useState<string>(repo.auth_type ?? "none");
+  const [token, setToken] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [sshKey, setSshKey] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Parse existing auth_config to pre-fill auth fields
+  useEffect(() => {
+    if (!repo.auth_config) return;
+    try {
+      const config = JSON.parse(repo.auth_config);
+      if (repo.auth_type === "token" && config.token) {
+        setToken(config.token);
+      } else if (repo.auth_type === "ssh" && config.private_key) {
+        setSshKey(config.private_key);
+      } else if (repo.auth_type === "http") {
+        if (config.username) setUsername(config.username);
+        if (config.password) setPassword(config.password);
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }, [repo.auth_config, repo.auth_type]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -233,11 +259,43 @@ function EditRepoForm({
     }
     setSaving(true);
     try {
+      // Build auth_config based on auth type
+      let authConfigValue: string | undefined;
+      if (authType === "token" && token.trim()) {
+        authConfigValue = JSON.stringify({ token: token.trim() });
+      } else if (authType === "ssh" && sshKey.trim()) {
+        authConfigValue = JSON.stringify({ private_key: sshKey.trim() });
+      } else if (authType === "http" && username.trim() && password.trim()) {
+        authConfigValue = JSON.stringify({
+          username: username.trim(),
+          password: password.trim(),
+        });
+      }
+
+      const urlChanged =
+        isRemote && url.trim() && url.trim() !== (repo.url ?? "");
+      const branchChanged = isRemote && branch.trim() !== (repo.branch ?? "");
+      const authChanged = isRemote && authType !== (repo.auth_type ?? "none");
+
       await invoke("update_repository", {
         id: repo.id,
         name: name.trim(),
         skillsPath: skillsPath.trim() || "skills",
+        url: isRemote && url.trim() ? url.trim() : undefined,
+        branch: isRemote && branch.trim() ? branch.trim() : undefined,
+        authType: isRemote ? authType : undefined,
+        authConfig: isRemote ? authConfigValue : undefined,
       });
+
+      // If URL, branch, or auth changed, trigger a re-sync (which will re-clone if needed)
+      if (urlChanged || branchChanged || authChanged) {
+        try {
+          await invoke("sync_repository", { id: repo.id });
+        } catch {
+          // sync may fail, that's OK — status will be updated in DB
+        }
+      }
+
       toast.success("Repository updated");
       onSave();
     } catch (error) {
@@ -251,7 +309,7 @@ function EditRepoForm({
 
   return (
     <>
-      <div className="grid gap-4 py-4">
+      <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto">
         <div className="grid gap-2">
           <Label htmlFor="edit-name">Name</Label>
           <Input
@@ -270,6 +328,102 @@ function EditRepoForm({
             disabled={saving}
           />
         </div>
+
+        {isRemote && (
+          <>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-url">Git URL</Label>
+              <Input
+                id="edit-url"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
+                disabled={saving}
+                placeholder="https://github.com/user/repo"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="edit-branch">
+                Branch <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="edit-branch"
+                value={branch}
+                onChange={(e) => setBranch(e.target.value)}
+                disabled={saving}
+                placeholder="main"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Authentication</Label>
+              <div className="flex gap-2">
+                {["none", "token", "ssh", "http"].map((type) => (
+                  <Button
+                    key={type}
+                    type="button"
+                    size="sm"
+                    variant={authType === type ? "secondary" : "ghost"}
+                    onClick={() => setAuthType(type)}
+                    disabled={saving}
+                  >
+                    {type === "none"
+                      ? "None"
+                      : type === "http"
+                        ? "User/Pass"
+                        : type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            {authType === "token" && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-token">Token</Label>
+                <Input
+                  id="edit-token"
+                  type="password"
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  disabled={saving}
+                  placeholder="ghp_xxxx or personal access token"
+                />
+              </div>
+            )}
+            {authType === "ssh" && (
+              <div className="grid gap-2">
+                <Label htmlFor="edit-ssh">SSH Private Key</Label>
+                <Input
+                  id="edit-ssh"
+                  value={sshKey}
+                  onChange={(e) => setSshKey(e.target.value)}
+                  disabled={saving}
+                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                />
+              </div>
+            )}
+            {authType === "http" && (
+              <>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-username">Username</Label>
+                  <Input
+                    id="edit-username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    disabled={saving}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label htmlFor="edit-password">Password</Label>
+                  <Input
+                    id="edit-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    disabled={saving}
+                  />
+                </div>
+              </>
+            )}
+          </>
+        )}
       </div>
       <DialogFooter>
         <Button variant="outline" onClick={onCancel} disabled={saving}>
@@ -464,7 +618,7 @@ export function Repositories() {
           if (!v) setEditingRepo(null);
         }}
       >
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Edit Repository</DialogTitle>
             <DialogDescription>
