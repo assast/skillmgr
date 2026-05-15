@@ -173,7 +173,8 @@ async fn add_repository(
                 repo.update(&pool, None, None, None, None, None, Some("synced"), None).await.map_err(|e| e.to_string())?;
             }
             Err(e) => {
-                repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e.to_string())).await.map_err(|e| e.to_string())?;
+                let _ = repo.delete(&pool).await;
+                let _ = fs::remove_dir_all(&local_path);
                 return Err(e.to_string());
             }
         }
@@ -233,7 +234,8 @@ async fn add_repository(
                 Ok(repo)
             }
             Err(e) => {
-                repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e)).await.map_err(|e| e.to_string())?;
+                let _ = repo.delete(&pool).await;
+                let _ = fs::remove_dir_all(&local_path);
                 Err(e)
             }
         }
