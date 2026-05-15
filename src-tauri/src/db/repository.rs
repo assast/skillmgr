@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use chrono::{DateTime, Utc};
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Repository {
@@ -34,11 +35,13 @@ impl Repository {
         status: &str,
         skills_path: Option<&str>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let id = Uuid::new_v4().to_string();
         let repo = sqlx::query_as::<_, Repository>(
-            "INSERT INTO repositories (name, url, path, source_type, local_path, status, skills_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE(?7, 'skills'))
+            "INSERT INTO repositories (id, name, url, path, source_type, local_path, status, skills_path)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, 'skills'))
              RETURNING *"
         )
+        .bind(&id)
         .bind(name)
         .bind(url)
         .bind(path)
