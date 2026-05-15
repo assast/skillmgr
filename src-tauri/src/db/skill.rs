@@ -23,6 +23,10 @@ pub struct Skill {
     pub first_discovered_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    #[serde(default)]
+    pub dispatch_count: i32,
+    #[serde(default)]
+    pub repository_name: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -93,6 +97,8 @@ pub fn map_row_to_skill(row: &sqlx::sqlite::SqliteRow) -> Result<Skill> {
         first_discovered_at: row.get("first_discovered_at"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
+        dispatch_count: row.try_get("dispatch_count").unwrap_or(0),
+        repository_name: row.try_get("repository_name").unwrap_or(None),
     })
 }
 
@@ -145,6 +151,8 @@ pub async fn bulk_create_skills(
             first_discovered_at: now,
             created_at: now,
             updated_at: now,
+            dispatch_count: 0,
+            repository_name: None,
         });
 
         b.push_bind(id)

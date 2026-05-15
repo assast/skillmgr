@@ -8,6 +8,7 @@ export interface ConfigActions {
   getBasePath: () => Promise<void>;
   setBasePath: (path: string) => Promise<void>;
   initBaseDirectory: (path: string) => Promise<void>;
+  migrateBaseDirectory: (newPath: string) => Promise<boolean>;
   clearError: () => void;
 }
 

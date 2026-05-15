@@ -60,6 +60,29 @@ export const useConfigStore = create<ConfigStore>((set) => ({
     }
   },
 
+  migrateBaseDirectory: async (newPath: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const requireRestart = await invoke<boolean>(
+        "migrate_base_directory_command",
+        { newPath },
+      );
+      set({ basePath: newPath, isLoading: false });
+      return requireRestart;
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Failed to migrate base directory";
+      set({
+        error: message,
+        isLoading: false,
+      });
+      toast.error(message);
+      throw error;
+    }
+  },
+
   clearError: () => {
     set({ error: null });
   },

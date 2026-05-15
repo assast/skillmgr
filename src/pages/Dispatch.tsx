@@ -50,7 +50,7 @@ const Badge = ({
   className?: string;
 }) => (
   <span
-    className={`inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium transition-colors ${className}`}
+    className={`inline-flex items-center rounded-lg border px-2 py-0.5 text-xs font-medium transition-colors ${className}`}
   >
     {children}
   </span>
@@ -59,13 +59,13 @@ const Badge = ({
 const getStatusColor = (status: SyncStatus) => {
   switch (status) {
     case SyncStatus.Synced:
-      return "bg-green-500/10 text-green-500 border-green-500/20";
+      return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
     case SyncStatus.Outdated:
-      return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
+      return "bg-amber-500/10 text-amber-600 border-amber-500/20";
     case SyncStatus.Conflict:
-      return "bg-orange-500/10 text-orange-500 border-orange-500/20";
+      return "bg-orange-500/10 text-orange-600 border-orange-500/20";
     case SyncStatus.Error:
-      return "bg-red-500/10 text-red-500 border-red-500/20";
+      return "bg-red-500/10 text-red-600 border-red-500/20";
   }
 };
 
@@ -85,11 +85,11 @@ const getStatusIcon = (status: SyncStatus) => {
 const getMethodColor = (method: DispatchMethod) => {
   switch (method) {
     case DispatchMethod.Symlink:
-      return "bg-blue-500/10 text-blue-500 border-blue-500/20";
+      return "bg-blue-500/10 text-blue-600 border-blue-500/20";
     case DispatchMethod.Copy:
-      return "bg-purple-500/10 text-purple-500 border-purple-500/20";
+      return "bg-purple-500/10 text-purple-600 border-purple-500/20";
     case DispatchMethod.Hardlink:
-      return "bg-gray-500/10 text-gray-500 border-gray-500/20";
+      return "bg-gray-500/10 text-gray-600 border-gray-500/20";
   }
 };
 
@@ -140,7 +140,7 @@ export function DispatchPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">Dispatches</h1>
-          <p className="text-gray-500">Manage your dispatched skills</p>
+          <p className="text-muted-foreground">Manage your dispatched skills</p>
         </div>
         <Button onClick={fetchDispatches} disabled={loading}>
           <RefreshCw
@@ -155,7 +155,7 @@ export function DispatchPage() {
         <div className="flex justify-between items-center mb-6">
           <div>
             <h2 className="text-2xl font-bold mb-2">Dispatch Templates</h2>
-            <p className="text-gray-500">
+            <p className="text-muted-foreground">
               Save and reuse groups of skills for quick dispatch
             </p>
           </div>
@@ -186,7 +186,7 @@ export function DispatchPage() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Select Skills</label>
-                  <div className="border rounded-md p-4 max-h-60 overflow-y-auto space-y-2">
+                  <div className="border border-white/30 rounded-xl bg-white/30 backdrop-blur-sm p-4 max-h-60 overflow-y-auto space-y-2">
                     {skills.map((skill) => (
                       <div key={skill.id} className="flex items-center gap-2">
                         <input
@@ -213,10 +213,10 @@ export function DispatchPage() {
         </div>
 
         {templates.length === 0 ? (
-          <div className="border rounded-lg p-8 text-center">
-            <FolderOpen className="h-10 w-10 text-gray-400 mx-auto mb-4" />
+          <div className="glass-card rounded-2xl p-8 text-center">
+            <FolderOpen className="h-10 w-10 text-muted-foreground/40 mx-auto mb-4" />
             <h3 className="text-lg font-medium mb-2">No templates yet</h3>
-            <p className="text-gray-500 mb-4">
+            <p className="text-muted-foreground mb-4">
               Create your first template to save groups of skills for quick
               dispatch.
             </p>
@@ -226,10 +226,7 @@ export function DispatchPage() {
             {templates.map((template) => {
               const skillIds = JSON.parse(template.skill_ids) as string[];
               return (
-                <Card
-                  key={template.id}
-                  className="hover:shadow-md transition-shadow"
-                >
+                <Card key={template.id} className="hover:scale-[1.01]">
                   <CardHeader>
                     <div className="flex justify-between items-start">
                       <CardTitle className="text-xl font-semibold">
@@ -246,7 +243,7 @@ export function DispatchPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
+                          className="h-8 w-8 p-0 text-red-500 hover:text-red-600 hover:bg-red-50/50"
                           onClick={() => deleteTemplate(template.id)}
                         >
                           <Trash2 className="h-4 w-4" />
@@ -260,7 +257,7 @@ export function DispatchPage() {
                     )}
                   </CardHeader>
                   <CardContent>
-                    <div className="text-sm text-gray-600 dark:text-gray-300">
+                    <div className="text-sm text-muted-foreground">
                       <p className="font-medium mb-2">
                         Skills ({skillIds.length}):
                       </p>
@@ -273,7 +270,7 @@ export function DispatchPage() {
                       </ul>
                     </div>
                   </CardContent>
-                  <CardFooter className="border-t pt-4">
+                  <CardFooter>
                     <Dialog>
                       <DialogTrigger asChild>
                         <Button className="w-full">
@@ -349,15 +346,17 @@ export function DispatchPage() {
 
       {loading && dispatches.length === 0 && (
         <div className="flex justify-center items-center py-20">
-          <RefreshCw className="h-8 w-8 animate-spin text-gray-400" />
+          <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground/40" />
         </div>
       )}
 
       {!loading && dispatches.length === 0 && (
         <div className="flex flex-col justify-center items-center py-20 text-center">
-          <FolderOpen className="h-12 w-12 text-gray-400 mb-4" />
+          <div className="w-16 h-16 bg-white/50 backdrop-blur-sm rounded-2xl flex items-center justify-center mb-4">
+            <FolderOpen className="h-8 w-8 text-muted-foreground/40" />
+          </div>
           <h3 className="text-xl font-medium mb-2">No dispatches yet</h3>
-          <p className="text-gray-500 mb-6 max-w-md">
+          <p className="text-muted-foreground mb-6 max-w-md">
             You haven't dispatched any skills yet. Go to the Skills page and
             click "Dispatch" on any skill to get started.
           </p>
@@ -369,7 +368,7 @@ export function DispatchPage() {
           {dispatches.map((dispatch) => (
             <Card
               key={dispatch.id}
-              className="overflow-hidden hover:shadow-md transition-shadow"
+              className="overflow-hidden hover:scale-[1.01]"
             >
               <CardHeader>
                 <div className="flex justify-between items-start">
@@ -385,27 +384,27 @@ export function DispatchPage() {
                   <Badge className={getMethodColor(dispatch.method)}>
                     {dispatch.method}
                   </Badge>
-                  <Badge className="bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200">
+                  <Badge className="bg-white/60 text-foreground/70 border-white/30">
                     {getTargetDirName(dispatch.target_dir)}
                   </Badge>
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 text-sm text-gray-600 dark:text-gray-300">
+                <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">Target:</span>
-                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs break-all">
+                    <code className="bg-white/40 backdrop-blur-sm px-1.5 py-0.5 rounded-lg text-xs break-all">
                       {dispatch.dest_path}
                     </code>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">Source:</span>
-                    <code className="bg-gray-100 px-1.5 py-0.5 rounded text-xs break-all">
+                    <code className="bg-white/40 backdrop-blur-sm px-1.5 py-0.5 rounded-lg text-xs break-all">
                       {dispatch.source_path}
                     </code>
                   </div>
                   {dispatch.error_message && (
-                    <div className="p-2 bg-red-50 border border-red-200 rounded mt-2">
+                    <div className="p-2 bg-red-50/80 border border-red-200/60 rounded-xl mt-2">
                       <p className="text-xs text-red-600">
                         {dispatch.error_message}
                       </p>
@@ -413,8 +412,8 @@ export function DispatchPage() {
                   )}
                 </div>
               </CardContent>
-              <CardFooter className="border-t pt-4 flex justify-between">
-                <div className="text-xs text-gray-500">
+              <CardFooter className="flex justify-between">
+                <div className="text-xs text-muted-foreground">
                   Dispatched{" "}
                   {new Date(dispatch.dispatched_at).toLocaleDateString()}
                   {dispatch.last_synced_at && (
@@ -443,7 +442,7 @@ export function DispatchPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50/50"
                     disabled
                   >
                     <Trash2 className="h-4 w-4 mr-1" />

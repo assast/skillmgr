@@ -1,5 +1,4 @@
 export interface GitConfig {
-  username: string;
-  email: string;
-  sshKeyPath?: string;
+  detectedPath: string | null;
+  executablePath: string | null;
 }

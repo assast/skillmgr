@@ -16,206 +16,196 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
   Brain,
   GitBranch,
-  RefreshCw,
-  Palette,
-  Database,
-  Download,
-  Upload,
+  FolderOpen,
   Save,
-  Keyboard,
-  Bell,
+  Plus,
+  Trash2,
+  CheckCircle2,
+  XCircle,
+  Loader2,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Star,
+  AlertTriangle,
 } from "lucide-react";
-import {
-  useSettingsStore,
-  SyncConfig,
-  ThemeConfig,
-  NotificationConfig,
-} from "@/store/settingsStore";
-import { LLMConfig } from "@/types/llm";
-import { GitConfig } from "@/types/git";
+import { useSettingsStore } from "@/store/settingsStore";
+import { useConfigStore } from "@/store/configStore";
+import { LLMProvider, LLMModel } from "@/types/llm";
+import { open } from "@tauri-apps/plugin-dialog";
 
 export function SettingsPage() {
   const {
-    llmConfig,
+    providers,
+    availableModels,
     gitConfig,
-    syncConfig,
-    themeConfig,
-    notificationConfig,
     isLoading,
-    loadLLMConfig,
-    saveLLMConfig,
+    loadLLMProviders,
+    saveLLMProviders,
+    fetchModels,
     loadGitConfig,
     saveGitConfig,
-    loadSyncConfig,
-    saveSyncConfig,
-    loadThemeConfig,
-    saveThemeConfig,
-    loadNotificationConfig,
-    saveNotificationConfig,
-    exportDatabase,
-    importDatabase,
   } = useSettingsStore();
-  const [llmFormData, setLlmFormData] = useState<LLMConfig>({
-    apiKey: "",
-    baseUrl: "",
-    model: "gpt-4o",
-  });
-  const [gitFormData, setGitFormData] = useState<GitConfig>({
-    username: "",
-    email: "",
-    sshKeyPath: "",
-  });
-  const [syncFormData, setSyncFormData] = useState<SyncConfig>({
-    autoSyncEnabled: false,
-    syncInterval: "daily",
-  });
-  const [themeFormData, setThemeFormData] = useState<ThemeConfig>({
-    theme: "light",
-    language: "en",
-  });
-  const [notificationFormData, setNotificationFormData] =
-    useState<NotificationConfig>({
-      soundEnabled: true,
-      desktopNotificationsEnabled: false,
-    });
-  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+
+  const { basePath, migrateBaseDirectory } = useConfigStore();
+
+  const [isMigrating, setIsMigrating] = useState(false);
+  const [showMigrateDialog, setShowMigrateDialog] = useState(false);
+  const [migrateTarget, setMigrateTarget] = useState<string | null>(null);
+  const [requireRestart, setRequireRestart] = useState(false);
+
+  // LLM provider editing state
+  const [editingProviders, setEditingProviders] = useState<LLMProvider[]>([]);
+  const [expandedProviderId, setExpandedProviderId] = useState<string | null>(
+    null,
+  );
+  const [isFetchingModels, setIsFetchingModels] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Git editing state
+  const [gitPath, setGitPath] = useState("");
 
   useEffect(() => {
-    loadLLMConfig();
+    loadLLMProviders();
     loadGitConfig();
-    loadSyncConfig();
-    loadThemeConfig();
-    loadNotificationConfig();
-  }, [
-    loadLLMConfig,
-    loadGitConfig,
-    loadSyncConfig,
-    loadThemeConfig,
-    loadNotificationConfig,
-  ]);
+  }, [loadLLMProviders, loadGitConfig]);
 
   useEffect(() => {
-    if (llmConfig) {
-      setLlmFormData(llmConfig);
-    }
-  }, [llmConfig]);
+    setEditingProviders(providers);
+  }, [providers]);
 
   useEffect(() => {
     if (gitConfig) {
-      setGitFormData(gitConfig);
+      setGitPath(gitConfig.executablePath || "");
     }
   }, [gitConfig]);
 
-  useEffect(() => {
-    if (syncConfig) {
-      setSyncFormData(syncConfig);
-    }
-  }, [syncConfig]);
+  // --- Base Directory ---
 
-  useEffect(() => {
-    if (themeConfig) {
-      setThemeFormData(themeConfig);
-    }
-  }, [themeConfig]);
-
-  useEffect(() => {
-    if (notificationConfig) {
-      setNotificationFormData(notificationConfig);
-    }
-  }, [notificationConfig]);
-
-  const handleLlmSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleChangeDirectory = async () => {
     try {
-      await saveLLMConfig(llmFormData);
-      toast.success("LLM configuration saved successfully");
-    } catch (error) {
-      toast.error(`Failed to save configuration: ${(error as Error).message}`);
+      const selected = await open({
+        directory: true,
+        multiple: false,
+        title: "Select New Base Directory",
+      });
+      if (selected && typeof selected === "string") {
+        setMigrateTarget(selected);
+        setShowMigrateDialog(true);
+      }
+    } catch (err) {
+      console.error("Failed to select directory:", err);
     }
   };
 
-  const handleGitSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleMigrate = async () => {
+    if (!migrateTarget) return;
+    setIsMigrating(true);
     try {
-      await saveGitConfig(gitFormData);
-      toast.success("Git configuration saved successfully");
+      const restart = await migrateBaseDirectory(migrateTarget);
+      setRequireRestart(restart);
+      setShowMigrateDialog(false);
+      if (restart) {
+        toast.info("Migration completed. Please restart the application.");
+      } else {
+        toast.success("Base directory updated successfully.");
+      }
     } catch (error) {
-      toast.error(
-        `Failed to save Git configuration: ${(error as Error).message}`,
-      );
-    }
-  };
-
-  const handleSyncSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await saveSyncConfig(syncFormData);
-      toast.success("Sync configuration saved successfully");
-    } catch (error) {
-      toast.error(
-        `Failed to save Sync configuration: ${(error as Error).message}`,
-      );
-    }
-  };
-
-  const handleThemeSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await saveThemeConfig(themeFormData);
-      toast.success("Theme & Language configuration saved successfully");
-    } catch (error) {
-      toast.error(
-        `Failed to save Theme & Language configuration: ${(error as Error).message}`,
-      );
-    }
-  };
-
-  const handleExport = async () => {
-    try {
-      await exportDatabase();
-      toast.success("Backup created successfully");
-    } catch (error) {
-      toast.error(`Failed to create backup: ${(error as Error).message}`);
-    }
-  };
-
-  const handleImport = async () => {
-    try {
-      await importDatabase();
-      toast.success(
-        "Backup restored successfully. Please restart the application for changes to take effect.",
-      );
-    } catch (error) {
-      toast.error(`Failed to restore backup: ${(error as Error).message}`);
-    }
-  };
-
-  const handleNotificationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      await saveNotificationConfig(notificationFormData);
-      toast.success("Notification configuration saved successfully");
-    } catch (error) {
-      toast.error(
-        `Failed to save Notification configuration: ${(error as Error).message}`,
-      );
-    }
-  };
-
-  const handleCheckUpdate = async () => {
-    try {
-      setIsCheckingUpdate(true);
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      toast.success("You are already using the latest version!");
-    } catch (error) {
-      toast.error(`Failed to check for updates: ${(error as Error).message}`);
+      toast.error(`Migration failed: ${(error as Error).message}`);
     } finally {
-      setIsCheckingUpdate(false);
+      setIsMigrating(false);
+    }
+  };
+
+  // --- LLM Providers ---
+
+  const handleAddProvider = () => {
+    const newProvider: LLMProvider = {
+      id: crypto.randomUUID(),
+      name: `Provider ${editingProviders.length + 1}`,
+      apiKey: "",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-4o",
+      isDefault: editingProviders.length === 0,
+    };
+    setEditingProviders([...editingProviders, newProvider]);
+    setExpandedProviderId(newProvider.id);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleUpdateProvider = (id: string, updates: Partial<LLMProvider>) => {
+    setEditingProviders(
+      editingProviders.map((p) => (p.id === id ? { ...p, ...updates } : p)),
+    );
+    setHasUnsavedChanges(true);
+  };
+
+  const handleDeleteProvider = (id: string) => {
+    const updated = editingProviders.filter((p) => p.id !== id);
+    if (updated.length > 0 && !updated.some((p) => p.isDefault)) {
+      updated[0] = { ...updated[0], isDefault: true };
+    }
+    setEditingProviders(updated);
+    if (expandedProviderId === id) setExpandedProviderId(null);
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSetDefault = (id: string) => {
+    setEditingProviders(
+      editingProviders.map((p) => ({
+        ...p,
+        isDefault: p.id === id,
+      })),
+    );
+    setHasUnsavedChanges(true);
+  };
+
+  const handleSaveProviders = async () => {
+    try {
+      await saveLLMProviders(editingProviders);
+      setHasUnsavedChanges(false);
+      toast.success("LLM providers saved successfully");
+    } catch (error) {
+      toast.error(`Failed to save: ${(error as Error).message}`);
+    }
+  };
+
+  const handleFetchModels = async (baseUrl: string, apiKey: string) => {
+    if (!baseUrl || !apiKey) {
+      toast.error("Base URL and API Key are required to fetch models");
+      return;
+    }
+    setIsFetchingModels(true);
+    try {
+      const models = await fetchModels(baseUrl, apiKey);
+      toast.success(`Fetched ${models.length} models`);
+    } catch (error) {
+      toast.error(`Failed to fetch models: ${(error as Error).message}`);
+    } finally {
+      setIsFetchingModels(false);
+    }
+  };
+
+  // --- Git ---
+
+  const handleSaveGit = async () => {
+    try {
+      await saveGitConfig(gitPath);
+      toast.success("Git configuration saved");
+    } catch (error) {
+      toast.error(`Failed to save: ${(error as Error).message}`);
     }
   };
 
@@ -224,497 +214,419 @@ export function SettingsPage() {
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-3xl font-bold mb-2">Settings</h1>
-          <p className="text-gray-500">Configure your SkillVault preferences</p>
+          <p className="text-muted-foreground">
+            Configure your Skill Vaults preferences
+          </p>
         </div>
       </div>
 
       <div className="space-y-6">
+        {/* Base Directory */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <Brain className="h-5 w-5 text-blue-500" />
-              <CardTitle>LLM Configuration</CardTitle>
+              <div className="w-8 h-8 bg-teal-100/80 rounded-lg flex items-center justify-center">
+                <FolderOpen className="h-4 w-4 text-teal-600" />
+              </div>
+              <CardTitle>Base Directory</CardTitle>
             </div>
-            <CardDescription>
-              Configure your language model providers and API keys
-            </CardDescription>
+            <CardDescription>Your skill vault storage location</CardDescription>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleLlmSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="provider">Provider</Label>
-                <Select defaultValue="openai" disabled>
-                  <SelectTrigger id="provider">
-                    <SelectValue placeholder="Select provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="openai">OpenAI / Compatible</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500">
-                  Currently only OpenAI-compatible APIs are supported
+          <CardContent className="space-y-4">
+            <div className="p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/30">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-muted-foreground mb-1">
+                    Current Path
+                  </p>
+                  <p className="text-sm font-mono break-all">
+                    {basePath || "Not configured"}
+                  </p>
+                </div>
+                <Button
+                  onClick={handleChangeDirectory}
+                  disabled={isMigrating}
+                  variant="outline"
+                  size="sm"
+                  className="shrink-0"
+                >
+                  {isMigrating ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <FolderOpen className="mr-2 h-4 w-4" />
+                  )}
+                  Change
+                </Button>
+              </div>
+            </div>
+
+            {requireRestart && (
+              <div className="flex items-center gap-2 p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl">
+                <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0" />
+                <p className="text-sm text-amber-800">
+                  Directory migrated. Please restart the application for changes
+                  to take effect.
                 </p>
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="apiKey">API Key</Label>
-                <Input
-                  id="apiKey"
-                  type="password"
-                  placeholder="sk-..."
-                  value={llmFormData.apiKey}
-                  onChange={(e) =>
-                    setLlmFormData({ ...llmFormData, apiKey: e.target.value })
-                  }
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="baseUrl">Base URL (Optional)</Label>
-                <Input
-                  id="baseUrl"
-                  placeholder="https://api.openai.com/v1"
-                  value={llmFormData.baseUrl || ""}
-                  onChange={(e) =>
-                    setLlmFormData({
-                      ...llmFormData,
-                      baseUrl: e.target.value || undefined,
-                    })
-                  }
-                />
-                <p className="text-xs text-gray-500">
-                  Leave empty for default OpenAI API, or enter your custom
-                  endpoint for other providers
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="model">Model</Label>
-                <Input
-                  id="model"
-                  placeholder="gpt-4o"
-                  value={llmFormData.model}
-                  onChange={(e) =>
-                    setLlmFormData({ ...llmFormData, model: e.target.value })
-                  }
-                  required
-                />
-                <p className="text-xs text-gray-500">
-                  e.g. gpt-4o, gpt-3.5-turbo, claude-3-opus (for compatible
-                  providers)
-                </p>
-              </div>
-
-              <Button type="submit" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Saving..." : "Save Configuration"}
-              </Button>
-            </form>
+            )}
           </CardContent>
         </Card>
 
+        {/* LLM Providers */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 bg-blue-100/80 rounded-lg flex items-center justify-center">
+                  <Brain className="h-4 w-4 text-blue-600" />
+                </div>
+                <div>
+                  <CardTitle>LLM Providers</CardTitle>
+                  <CardDescription>
+                    Configure language model providers for skill analysis
+                  </CardDescription>
+                </div>
+              </div>
+              <Button onClick={handleAddProvider} size="sm" variant="outline">
+                <Plus className="mr-1 h-4 w-4" />
+                Add Provider
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {editingProviders.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <Brain className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No LLM providers configured</p>
+                <p className="text-xs mt-1">
+                  Add a provider to enable AI-powered skill analysis
+                </p>
+              </div>
+            ) : (
+              editingProviders.map((provider) => (
+                <div
+                  key={provider.id}
+                  className="border border-white/30 rounded-xl overflow-hidden"
+                >
+                  {/* Provider Header */}
+                  <button
+                    className="w-full flex items-center justify-between p-3 hover:bg-white/20 transition-colors"
+                    onClick={() =>
+                      setExpandedProviderId(
+                        expandedProviderId === provider.id ? null : provider.id,
+                      )
+                    }
+                  >
+                    <div className="flex items-center gap-2">
+                      {expandedProviderId === provider.id ? (
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className="font-medium text-sm">
+                        {provider.name}
+                      </span>
+                      {provider.isDefault && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs bg-blue-100/80 text-blue-700 rounded-md">
+                          <Star className="h-3 w-3" />
+                          Default
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                      {provider.model}
+                    </span>
+                  </button>
+
+                  {/* Provider Editor */}
+                  {expandedProviderId === provider.id && (
+                    <div className="p-4 pt-0 space-y-3 border-t border-white/20">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">Name</Label>
+                          <Input
+                            value={provider.name}
+                            onChange={(e) =>
+                              handleUpdateProvider(provider.id, {
+                                name: e.target.value,
+                              })
+                            }
+                            placeholder="OpenAI"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs">API Key</Label>
+                          <Input
+                            type="password"
+                            value={provider.apiKey}
+                            onChange={(e) =>
+                              handleUpdateProvider(provider.id, {
+                                apiKey: e.target.value,
+                              })
+                            }
+                            placeholder="sk-..."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Base URL</Label>
+                        <Input
+                          value={provider.baseUrl}
+                          onChange={(e) =>
+                            handleUpdateProvider(provider.id, {
+                              baseUrl: e.target.value,
+                            })
+                          }
+                          placeholder="https://api.openai.com/v1"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          OpenAI-compatible API endpoint
+                        </p>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <Label className="text-xs">Model</Label>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-6 text-xs"
+                            disabled={
+                              isFetchingModels ||
+                              !provider.baseUrl ||
+                              !provider.apiKey
+                            }
+                            onClick={() =>
+                              handleFetchModels(
+                                provider.baseUrl,
+                                provider.apiKey,
+                              )
+                            }
+                          >
+                            {isFetchingModels ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <RefreshCw className="mr-1 h-3 w-3" />
+                            )}
+                            Fetch Models
+                          </Button>
+                        </div>
+                        {availableModels.length > 0 ? (
+                          <Select
+                            value={provider.model}
+                            onValueChange={(value) =>
+                              handleUpdateProvider(provider.id, {
+                                model: value,
+                              })
+                            }
+                          >
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="Select model" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableModels.map((model: LLMModel) => (
+                                <SelectItem key={model.id} value={model.id}>
+                                  {model.id}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <Input
+                            value={provider.model}
+                            onChange={(e) =>
+                              handleUpdateProvider(provider.id, {
+                                model: e.target.value,
+                              })
+                            }
+                            placeholder="gpt-4o"
+                          />
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 pt-2">
+                        {!provider.isDefault && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleSetDefault(provider.id)}
+                          >
+                            <Star className="mr-1 h-3 w-3" />
+                            Set Default
+                          </Button>
+                        )}
+                        <div className="flex-1" />
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50/80"
+                          onClick={() => handleDeleteProvider(provider.id)}
+                          disabled={editingProviders.length <= 1}
+                        >
+                          <Trash2 className="mr-1 h-3 w-3" />
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+
+            {editingProviders.length > 0 && (
+              <div className="pt-2">
+                <Button
+                  onClick={handleSaveProviders}
+                  disabled={isLoading || !hasUnsavedChanges}
+                >
+                  <Save className="mr-2 h-4 w-4" />
+                  {isLoading ? "Saving..." : "Save Providers"}
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Git Configuration */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <GitBranch className="h-5 w-5 text-purple-500" />
+              <div className="w-8 h-8 bg-purple-100/80 rounded-lg flex items-center justify-center">
+                <GitBranch className="h-4 w-4 text-purple-600" />
+              </div>
               <CardTitle>Git Configuration</CardTitle>
             </div>
             <CardDescription>
-              Set up Git global credentials for repository operations
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleGitSubmit} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="gitUsername">Global Username</Label>
-                <Input
-                  id="gitUsername"
-                  placeholder="John Doe"
-                  value={gitFormData.username}
-                  onChange={(e) =>
-                    setGitFormData({ ...gitFormData, username: e.target.value })
-                  }
-                  required
-                />
-                <p className="text-xs text-gray-500">
-                  This will be used as the commit author name for all Git
-                  operations
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="gitEmail">Global Email</Label>
-                <Input
-                  id="gitEmail"
-                  type="email"
-                  placeholder="john@example.com"
-                  value={gitFormData.email}
-                  onChange={(e) =>
-                    setGitFormData({ ...gitFormData, email: e.target.value })
-                  }
-                  required
-                />
-                <p className="text-xs text-gray-500">
-                  This will be used as the commit author email for all Git
-                  operations
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sshKeyPath">SSH Key Path (Optional)</Label>
-                <Input
-                  id="sshKeyPath"
-                  placeholder="~/.ssh/id_rsa"
-                  value={gitFormData.sshKeyPath || ""}
-                  onChange={(e) =>
-                    setGitFormData({
-                      ...gitFormData,
-                      sshKeyPath: e.target.value || undefined,
-                    })
-                  }
-                />
-                <p className="text-xs text-gray-500">
-                  Path to your private SSH key for Git authentication. Leave
-                  empty to use system default.
-                </p>
-              </div>
-
-              <Button type="submit" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Saving..." : "Save Git Configuration"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-green-500" />
-              <CardTitle>Sync Strategy</CardTitle>
-            </div>
-            <CardDescription>
-              Configure how skills are synced and updated
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSyncSubmit} className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="auto-sync">Auto Sync</Label>
-                  <p className="text-sm text-gray-500">
-                    Automatically sync all repositories on a schedule
-                  </p>
-                </div>
-                <Switch
-                  id="auto-sync"
-                  checked={syncFormData.autoSyncEnabled}
-                  onCheckedChange={(checked) =>
-                    setSyncFormData({
-                      ...syncFormData,
-                      autoSyncEnabled: checked,
-                    })
-                  }
-                />
-              </div>
-
-              {syncFormData.autoSyncEnabled && (
-                <div className="space-y-2">
-                  <Label htmlFor="sync-interval">Sync Interval</Label>
-                  <Select
-                    value={syncFormData.syncInterval}
-                    onValueChange={(
-                      value: "daily" | "weekly" | "monthly" | "never",
-                    ) =>
-                      setSyncFormData({ ...syncFormData, syncInterval: value })
-                    }
-                  >
-                    <SelectTrigger id="sync-interval">
-                      <SelectValue placeholder="Select interval" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="daily">Daily</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-gray-500">
-                    How often to automatically sync all repositories
-                  </p>
-                </div>
-              )}
-
-              <Button type="submit" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Saving..." : "Save Sync Configuration"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Palette className="h-5 w-5 text-orange-500" />
-              <CardTitle>Theme & Language</CardTitle>
-            </div>
-            <CardDescription>
-              Customize the appearance and language of SkillVault
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleThemeSubmit} className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="theme-switch">Dark Mode</Label>
-                  <p className="text-sm text-gray-500">
-                    Toggle between light and dark themes
-                  </p>
-                </div>
-                <Switch
-                  id="theme-switch"
-                  checked={themeFormData.theme === "dark"}
-                  onCheckedChange={(checked) =>
-                    setThemeFormData({
-                      ...themeFormData,
-                      theme: checked ? "dark" : "light",
-                    })
-                  }
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="language-select">Language</Label>
-                <Select
-                  value={themeFormData.language}
-                  onValueChange={(value: "zh" | "en") =>
-                    setThemeFormData({ ...themeFormData, language: value })
-                  }
-                >
-                  <SelectTrigger id="language-select">
-                    <SelectValue placeholder="Select language" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="en">English</SelectItem>
-                    <SelectItem value="zh">中文</SelectItem>
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-gray-500">
-                  Choose your preferred language
-                </p>
-              </div>
-
-              <Button type="submit" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Saving..." : "Save Theme & Language"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-pink-500" />
-              <CardTitle>Notifications</CardTitle>
-            </div>
-            <CardDescription>
-              Configure notification preferences and alerts
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleNotificationSubmit} className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="sound-notifications">
-                    Sound Notifications
-                  </Label>
-                  <p className="text-sm text-gray-500">
-                    Play sound effects for notifications and alerts
-                  </p>
-                </div>
-                <Switch
-                  id="sound-notifications"
-                  checked={notificationFormData.soundEnabled}
-                  onCheckedChange={(checked) =>
-                    setNotificationFormData({
-                      ...notificationFormData,
-                      soundEnabled: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <Label htmlFor="desktop-notifications">
-                    Desktop Notifications
-                  </Label>
-                  <p className="text-sm text-gray-500">
-                    Show system desktop notifications (requires permission)
-                  </p>
-                </div>
-                <Switch
-                  id="desktop-notifications"
-                  checked={notificationFormData.desktopNotificationsEnabled}
-                  onCheckedChange={(checked) =>
-                    setNotificationFormData({
-                      ...notificationFormData,
-                      desktopNotificationsEnabled: checked,
-                    })
-                  }
-                />
-              </div>
-
-              <Button type="submit" disabled={isLoading}>
-                <Save className="mr-2 h-4 w-4" />
-                {isLoading ? "Saving..." : "Save Notifications"}
-              </Button>
-            </form>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Keyboard className="h-5 w-5 text-indigo-500" />
-              <CardTitle>Keyboard Shortcuts</CardTitle>
-            </div>
-            <CardDescription>
-              Available keyboard shortcuts for faster navigation
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Navigate to Skills
-                </span>
-                <div className="flex items-center gap-1">
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    ⌘
-                  </kbd>
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    1
-                  </kbd>
-                </div>
-              </div>
-              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Navigate to Dispatches
-                </span>
-                <div className="flex items-center gap-1">
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    ⌘
-                  </kbd>
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    2
-                  </kbd>
-                </div>
-              </div>
-              <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-gray-800">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Navigate to Settings
-                </span>
-                <div className="flex items-center gap-1">
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    ⌘
-                  </kbd>
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    3
-                  </kbd>
-                </div>
-              </div>
-              <div className="flex items-center justify-between py-2">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Search Skills
-                </span>
-                <div className="flex items-center gap-1">
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    ⌘
-                  </kbd>
-                  <kbd className="px-2 py-1 text-xs font-semibold text-gray-700 bg-gray-100 border border-gray-200 rounded-lg dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700">
-                    K
-                  </kbd>
-                </div>
-              </div>
-            </div>
-            <p className="mt-4 text-sm text-gray-500">
-              Keyboard shortcuts are system-wide and will work even when the app
-              is in the background. Custom shortcuts coming in a future update.
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <Database className="h-5 w-5 text-red-500" />
-              <CardTitle>Backup & Restore</CardTitle>
-            </div>
-            <CardDescription>
-              Backup your skill library and restore from backups
+              Git executable path for repository operations
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-3">
-              <Button onClick={handleExport} disabled={isLoading}>
-                <Download className="mr-2 h-4 w-4" />
-                {isLoading ? "Exporting..." : "Create Backup"}
-              </Button>
-              <Button
-                variant="outline"
-                onClick={handleImport}
-                disabled={isLoading}
-              >
-                <Upload className="mr-2 h-4 w-4" />
-                {isLoading ? "Importing..." : "Restore Backup"}
-              </Button>
+            <div className="flex items-center gap-3 p-3 bg-white/40 backdrop-blur-sm rounded-xl border border-white/30">
+              <div className="text-sm">
+                <span className="text-muted-foreground">System Git: </span>
+                <span className="font-mono text-xs">
+                  {gitConfig?.detectedPath || "Not detected"}
+                </span>
+              </div>
+              {gitConfig?.detectedPath ? (
+                <CheckCircle2 className="h-4 w-4 text-green-600 shrink-0" />
+              ) : (
+                <XCircle className="h-4 w-4 text-red-500 shrink-0" />
+              )}
             </div>
-            <p className="text-sm text-gray-500">
-              Backup contains your full skill library, configurations and
-              repository settings. After restoring, you will need to restart the
-              application.
-            </p>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="gitPath">
+                Custom Git Path{" "}
+                <span className="text-muted-foreground">(optional)</span>
+              </Label>
+              <Input
+                id="gitPath"
+                value={gitPath}
+                onChange={(e) => setGitPath(e.target.value)}
+                placeholder={gitConfig?.detectedPath || "/usr/bin/git"}
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave empty to use the auto-detected system Git
+              </p>
+            </div>
+
+            <Button onClick={handleSaveGit} disabled={isLoading}>
+              <Save className="mr-2 h-4 w-4" />
+              {isLoading ? "Saving..." : "Save"}
+            </Button>
           </CardContent>
         </Card>
 
+        {/* App Updates */}
         <Card>
           <CardHeader>
             <div className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5 text-blue-500" />
+              <div className="w-8 h-8 bg-teal-100/80 rounded-lg flex items-center justify-center">
+                <RefreshCw className="h-4 w-4 text-teal-600" />
+              </div>
               <CardTitle>App Updates</CardTitle>
             </div>
             <CardDescription>
-              Check for new versions and update SkillVault
+              Check for new versions and update Skill Vaults
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-600 dark:text-gray-300">
+                <p className="text-sm text-muted-foreground">
                   Current version: 0.1.0
                 </p>
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Updates are installed automatically when available
                 </p>
               </div>
               <Button
-                onClick={handleCheckUpdate}
-                disabled={isCheckingUpdate || isLoading}
+                onClick={async () => {
+                  toast.info("Checking for updates...");
+                  await new Promise((r) => setTimeout(r, 1500));
+                  toast.success("You are already using the latest version!");
+                }}
+                disabled={isLoading}
               >
-                <RefreshCw
-                  className={`mr-2 h-4 w-4 ${isCheckingUpdate ? "animate-spin" : ""}`}
-                />
-                {isCheckingUpdate
-                  ? "Checking for updates..."
-                  : "Check for Updates"}
+                <RefreshCw className="mr-2 h-4 w-4" />
+                Check for Updates
               </Button>
             </div>
           </CardContent>
         </Card>
       </div>
+
+      {/* Migration Confirmation Dialog */}
+      <Dialog open={showMigrateDialog} onOpenChange={setShowMigrateDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Migrate Base Directory</DialogTitle>
+            <DialogDescription>
+              This will move all your skill repositories, configurations, and
+              database to the new location.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="p-3 bg-white/40 rounded-xl border border-white/30">
+              <p className="text-xs text-muted-foreground">From</p>
+              <p className="text-sm font-mono break-all">{basePath}</p>
+            </div>
+            <div className="text-center text-muted-foreground">↓</div>
+            <div className="p-3 bg-white/40 rounded-xl border border-white/30">
+              <p className="text-xs text-muted-foreground">To</p>
+              <p className="text-sm font-mono break-all">{migrateTarget}</p>
+            </div>
+            <div className="flex items-start gap-2 p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-800">
+                <p className="font-medium">This action requires app restart</p>
+                <p className="mt-1">
+                  Ensure you have a backup before migrating. The app will need
+                  to restart after migration completes.
+                </p>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowMigrateDialog(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleMigrate} disabled={isMigrating}>
+              {isMigrating ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <FolderOpen className="mr-2 h-4 w-4" />
+              )}
+              Migrate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

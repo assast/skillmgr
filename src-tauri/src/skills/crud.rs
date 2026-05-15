@@ -38,22 +38,22 @@ pub async fn list_skills(
     let mut source_type_param: Option<String> = None;
 
     if let Some(search) = &options.search {
-        conditions.push("(name LIKE ? OR description LIKE ? OR tags LIKE ?)");
+        conditions.push("(skills.name LIKE ? OR skills.description LIKE ? OR skills.tags LIKE ?)");
         search_param = Some(format!("%{}%", search));
     }
 
     if options.r#type.is_some() {
-        conditions.push("type = ?");
+        conditions.push("skills.type = ?");
         type_param = options.r#type.clone();
     }
 
     if options.status.is_some() {
-        conditions.push("status = ?");
+        conditions.push("skills.status = ?");
         status_param = options.status.clone();
     }
 
     if options.source_type.is_some() {
-        conditions.push("source_type = ?");
+        conditions.push("skills.source_type = ?");
         source_type_param = options.source_type.clone();
     }
 
@@ -63,7 +63,16 @@ pub async fn list_skills(
         format!(" AND {}", conditions.join(" AND "))
     };
 
-    let query = format!("SELECT * FROM skills WHERE 1=1{} ORDER BY name ASC", where_clause);
+    let query = format!(
+        "SELECT skills.*, \
+         COALESCE(d.cnt, 0) as dispatch_count, \
+         repositories.name as repository_name \
+         FROM skills \
+         LEFT JOIN (SELECT skill_id, COUNT(*) as cnt FROM dispatch GROUP BY skill_id) d ON d.skill_id = skills.id \
+         LEFT JOIN repositories ON skills.repository_id = repositories.id \
+         WHERE 1=1{} ORDER BY skills.name ASC",
+        where_clause
+    );
 
     // Bind parameters in order
     let mut query_builder = sqlx::query(&query);
@@ -110,6 +119,8 @@ pub async fn list_skills(
             first_discovered_at: row.get("first_discovered_at"),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
+            dispatch_count: row.try_get("dispatch_count").unwrap_or(0),
+            repository_name: row.try_get("repository_name").unwrap_or(None),
         });
     }
 

@@ -40,3 +40,10 @@ release/
 # Signing configuration
 .sign/*
 !.sign/README.md
+
+# claude
+.claude
+.playwright-mcp
+.sisyphus
+.slim
+.superpowers/

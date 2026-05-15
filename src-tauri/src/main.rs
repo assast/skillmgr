@@ -195,6 +195,10 @@ async fn add_repository(
                         .bind(&repo_id)
                         .execute(&pool_clone)
                         .await;
+                    // Discover skills after successful clone
+                    if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
+                        let _ = skills::discovery::scan_repository(&pool_clone, &repo, false).await;
+                    }
                 }
                 Err(e) => {
                     let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
@@ -251,6 +255,10 @@ async fn add_repository(
                         .bind(&repo_id)
                         .execute(&pool_clone)
                         .await;
+                    // Discover skills after successful copy/symlink
+                    if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
+                        let _ = skills::discovery::scan_repository(&pool_clone, &repo, false).await;
+                    }
                 }
                 Err(e) => {
                     let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
@@ -341,6 +349,7 @@ async fn sync_repository(
         match copy_dir_sync(source_path, local_path) {
             Ok(_) => {
                 repo.update(&pool, None, None, None, None, None, Some("synced"), None).await.map_err(|e| e.to_string())?;
+                let _ = skills::discovery::scan_repository(pool.inner(), &repo, false).await;
             }
             Err(e) => {
                 repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e)).await.map_err(|e| e.to_string())?;
@@ -352,6 +361,7 @@ async fn sync_repository(
         match git::sync_repository(&repo).await {
             Ok(_) => {
                 repo.update(&pool, None, None, None, None, None, Some("synced"), None).await.map_err(|e| e.to_string())?;
+                let _ = skills::discovery::scan_repository(pool.inner(), &repo, false).await;
             }
             Err(e) => {
                 repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e.to_string())).await.map_err(|e| e.to_string())?;
@@ -379,13 +389,18 @@ async fn sync_all_repositories(
             match git::sync_repository(&repo).await {
                 Ok(_) => {
                     let _ = repo.update(&pool, None, None, None, None, None, Some("synced"), None).await;
+                    let _ = skills::discovery::scan_repository(pool.inner(), &repo, false).await;
                 }
                 Err(e) => {
                     let _ = repo.update(&pool, None, None, None, None, None, Some("error"), Some(&e.to_string())).await;
                 }
             }
         }
-        updated_repos.push(repo);
+        // Re-fetch from DB to get the latest status after sync
+        match db::repository::Repository::get_by_id(&pool, &repo.id).await {
+            Ok(Some(fresh_repo)) => updated_repos.push(fresh_repo),
+            _ => updated_repos.push(repo),
+        }
     }
 
     Ok(updated_repos)

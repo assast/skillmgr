@@ -1,4 +1,12 @@
-import { useEffect, useCallback, Component, ErrorInfo, ReactNode } from "react";
+import {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  Component,
+  ErrorInfo,
+  ReactNode,
+} from "react";
 import {
   HashRouter,
   Routes,
@@ -91,25 +99,78 @@ class ErrorBoundary extends Component<
   }
 }
 
+function ScrollFade({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [showTop, setShowTop] = useState(false);
+  const [showBottom, setShowBottom] = useState(false);
+
+  const check = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const atTop = el.scrollTop > 8;
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    setShowTop(atTop);
+    setShowBottom(!atBottom);
+  }, []);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    check();
+    el.addEventListener("scroll", check, { passive: true });
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", check);
+      ro.disconnect();
+    };
+  }, [check]);
+
+  return (
+    <div className="relative flex-1 min-h-0">
+      <div ref={ref} className="h-full overflow-y-auto">
+        {children}
+      </div>
+      {showTop && (
+        <div className="absolute top-0 inset-x-0 h-10 bg-gradient-to-b from-background to-transparent pointer-events-none z-10" />
+      )}
+      {showBottom && (
+        <div className="absolute bottom-0 inset-x-0 h-10 bg-gradient-to-t from-background to-transparent pointer-events-none z-10" />
+      )}
+    </div>
+  );
+}
+
 function Navigation() {
   useLocation();
 
+  const isMac = navigator.platform.toUpperCase().includes("MAC");
+  const mod = isMac ? "⌘" : "Ctrl+";
+
   const navItems = [
-    { path: "/", label: "Skills", icon: <BookOpen className="h-4 w-4" /> },
+    {
+      path: "/",
+      label: "Skills",
+      icon: <BookOpen className="h-4 w-4" />,
+      shortcut: `${mod}1`,
+    },
     {
       path: "/repositories",
       label: "Repositories",
       icon: <Database className="h-4 w-4" />,
+      shortcut: `${mod}2`,
     },
     {
       path: "/dispatches",
       label: "Dispatches",
       icon: <Send className="h-4 w-4" />,
+      shortcut: `${mod}3`,
     },
     {
       path: "/settings",
       label: "Settings",
       icon: <SettingsIcon className="h-4 w-4" />,
+      shortcut: `${mod}4`,
     },
   ];
 
@@ -128,6 +189,7 @@ function Navigation() {
           <NavLink
             key={item.path}
             to={item.path}
+            title={`${item.shortcut}`}
             className={({ isActive }) =>
               `flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${
                 isActive
@@ -138,6 +200,9 @@ function Navigation() {
           >
             {item.icon}
             {item.label}
+            <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/50 bg-white/30 rounded-md">
+              {item.shortcut}
+            </kbd>
           </NavLink>
         ))}
       </div>
@@ -211,16 +276,18 @@ function AppContent() {
   return (
     <>
       <GradientBackground />
-      <div className="min-h-screen">
+      <div className="h-screen flex flex-col">
         <Navigation />
-        <main>
-          <Routes>
-            <Route path="/" element={<Skills />} />
-            <Route path="/repositories" element={<Repositories />} />
-            <Route path="/dispatches" element={<DispatchPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
-        </main>
+        <ScrollFade>
+          <main>
+            <Routes>
+              <Route path="/" element={<Skills />} />
+              <Route path="/repositories" element={<Repositories />} />
+              <Route path="/dispatches" element={<DispatchPage />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </main>
+        </ScrollFade>
         <Toaster />
       </div>
     </>

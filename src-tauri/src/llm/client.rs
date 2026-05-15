@@ -3,14 +3,75 @@ use sqlx::SqlitePool;
 
 use crate::db::config::Config;
 
-#[cfg_attr(test, mockall::automock)]
-pub trait LLMClient {
-    async fn analyze_skill(
-        &self,
-        skill_content: &str,
-        model: &str,
-    ) -> Result<SkillAnalysisResult, String>;
+// --- LLM Provider (multi-provider support) ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LLMProvider {
+    pub id: String,
+    pub name: String,
+    pub api_key: String,
+    pub base_url: String,
+    pub model: String,
+    pub is_default: bool,
 }
+
+const PROVIDERS_CONFIG_KEY: &str = "llm.providers";
+
+impl LLMProvider {
+    /// Load all providers from DB
+    pub async fn list_from_db(pool: &SqlitePool) -> Result<Vec<LLMProvider>, String> {
+        // Try new format first
+        if let Ok(Some(json)) = Config::get(pool, PROVIDERS_CONFIG_KEY).await {
+            if let Ok(providers) = serde_json::from_str::<Vec<LLMProvider>>(&json) {
+                return Ok(providers);
+            }
+        }
+
+        // Backward compatibility: migrate old single-provider format
+        let api_key = Config::get(pool, "llm.openai.api_key").await.map_err(|e| e.to_string())?;
+        if let Some(api_key) = api_key {
+            let base_url = Config::get(pool, "llm.openai.base_url").await
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            let model = Config::get(pool, "llm.openai.model").await
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| "gpt-4o".to_string());
+
+            let provider = LLMProvider {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "OpenAI".to_string(),
+                api_key,
+                base_url,
+                model,
+                is_default: true,
+            };
+
+            let providers = vec![provider];
+            // Save in new format
+            Self::save_all(pool, &providers).await?;
+            return Ok(providers);
+        }
+
+        Ok(vec![])
+    }
+
+    /// Save all providers to DB
+    pub async fn save_all(pool: &SqlitePool, providers: &[LLMProvider]) -> Result<(), String> {
+        let json = serde_json::to_string(providers).map_err(|e| e.to_string())?;
+        Config::set(pool, PROVIDERS_CONFIG_KEY, &json).await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// Get the default provider (first default-marked, or first in list)
+    pub async fn get_default(pool: &SqlitePool) -> Result<Option<LLMProvider>, String> {
+        let providers = Self::list_from_db(pool).await?;
+        let default = providers.iter().find(|p| p.is_default).cloned();
+        Ok(default.or_else(|| providers.into_iter().next()))
+    }
+}
+
+// --- Legacy LLMConfig for internal use ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMConfig {
@@ -19,29 +80,26 @@ pub struct LLMConfig {
     pub model: String,
 }
 
-impl LLMConfig {
-    pub async fn from_db(pool: &SqlitePool) -> Result<Self, String> {
-        let api_key = Config::get(pool, "llm.openai.api_key")
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "OpenAI API Key not configured".to_string())?;
-
-        let base_url = Config::get(pool, "llm.openai.base_url")
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let model = Config::get(pool, "llm.openai.model")
-            .await
-            .map_err(|e| e.to_string())?
-            .unwrap_or_else(|| "gpt-4o".to_string());
-
-        Ok(Self {
-            api_key,
-            base_url,
-            model,
-        })
+impl From<&LLMProvider> for LLMConfig {
+    fn from(provider: &LLMProvider) -> Self {
+        Self {
+            api_key: provider.api_key.clone(),
+            base_url: Some(provider.base_url.clone()),
+            model: provider.model.clone(),
+        }
     }
 }
+
+// --- LLM Model info for model fetching ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LLMModel {
+    pub id: String,
+    #[serde(rename = "owned_by", skip_serializing_if = "Option::is_none")]
+    pub owned_by: Option<String>,
+}
+
+// --- OpenAI Client ---
 
 pub struct OpenAIClient {
     client: reqwest::Client,
@@ -115,6 +173,26 @@ struct ChoiceMessage {
     content: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ModelsResponse {
+    data: Vec<ModelData>,
+}
+
+#[derive(Deserialize)]
+struct ModelData {
+    id: String,
+    owned_by: Option<String>,
+}
+
+#[cfg_attr(test, mockall::automock)]
+pub trait LLMClient {
+    async fn analyze_skill(
+        &self,
+        skill_content: &str,
+        model: &str,
+    ) -> Result<SkillAnalysisResult, String>;
+}
+
 impl LLMClient for OpenAIClient {
     async fn analyze_skill(
         &self,
@@ -183,6 +261,39 @@ impl LLMClient for OpenAIClient {
     }
 }
 
+/// Fetch available models from an OpenAI-compatible API endpoint
+pub async fn fetch_models(base_url: &str, api_key: &str) -> Result<Vec<LLMModel>, String> {
+    let client = reqwest::Client::new();
+    let url = format!("{}/models", base_url.trim_end_matches('/'));
+
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch models: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Failed to fetch models ({}): {}", status, body));
+    }
+
+    let models_response: ModelsResponse = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse models response: {}", e))?;
+
+    Ok(models_response
+        .data
+        .into_iter()
+        .map(|m| LLMModel {
+            id: m.id,
+            owned_by: m.owned_by,
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -192,7 +303,7 @@ mod tests {
     async fn test_llm_config_creation() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
 
-        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             .execute(&pool)
             .await
             .unwrap();
@@ -218,33 +329,30 @@ mod tests {
             .await
             .unwrap();
 
-        let config = LLMConfig::from_db(&pool).await.unwrap();
-
-        assert_eq!(config.api_key, "test_api_key_123");
-        assert_eq!(
-            config.base_url,
-            Some("https://api.openai.com/v1".to_string())
-        );
-        assert_eq!(config.model, "gpt-4o-mini");
+        let providers = LLMProvider::list_from_db(&pool).await.unwrap();
+        assert_eq!(providers.len(), 1);
+        assert_eq!(providers[0].api_key, "test_api_key_123");
+        assert_eq!(providers[0].base_url, "https://api.openai.com/v1");
+        assert_eq!(providers[0].model, "gpt-4o-mini");
+        assert!(providers[0].is_default);
     }
 
     #[tokio::test]
     async fn test_llm_config_missing_api_key() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             .execute(&pool)
             .await
             .unwrap();
 
-        let result = LLMConfig::from_db(&pool).await;
-        assert!(result.is_err());
-        assert_eq!(result.err().unwrap(), "OpenAI API Key not configured");
+        let providers = LLMProvider::list_from_db(&pool).await.unwrap();
+        assert!(providers.is_empty());
     }
 
     #[tokio::test]
     async fn test_llm_config_default_model() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
-        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        sqlx::query("CREATE TABLE config (key TEXT PRIMARY KEY, value TEXT NOT NULL, created_at DATETIME DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)")
             .execute(&pool)
             .await
             .unwrap();
@@ -256,8 +364,8 @@ mod tests {
             .await
             .unwrap();
 
-        let config = LLMConfig::from_db(&pool).await.unwrap();
-        assert_eq!(config.model, "gpt-4o");
+        let providers = LLMProvider::list_from_db(&pool).await.unwrap();
+        assert_eq!(providers[0].model, "gpt-4o");
     }
 
     #[test]
@@ -284,7 +392,6 @@ mod tests {
         assert_eq!(client.api_base(), "https://api.openai.com/v1");
     }
 
-    // Mock tests for LLMClient trait
     #[tokio::test]
     async fn test_analyze_skill_success() {
         let mut mock_client = MockLLMClient::new();

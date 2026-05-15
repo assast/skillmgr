@@ -1,190 +1,100 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
-import { open, save } from "@tauri-apps/plugin-dialog";
-import { copyFile } from "@tauri-apps/plugin-fs";
-import { LLMConfig } from "../types/llm";
+import { LLMProvider, LLMModel } from "../types/llm";
 import { GitConfig } from "../types/git";
-
-export interface SyncConfig {
-  autoSyncEnabled: boolean;
-  syncInterval: "daily" | "weekly" | "monthly" | "never";
-}
 
 export interface ThemeConfig {
   theme: "light" | "dark";
-  language: "zh" | "en";
-}
-
-export interface NotificationConfig {
-  soundEnabled: boolean;
-  desktopNotificationsEnabled: boolean;
 }
 
 interface SettingsState {
-  llmConfig: LLMConfig | null;
+  providers: LLMProvider[];
+  availableModels: LLMModel[];
   gitConfig: GitConfig | null;
-  syncConfig: SyncConfig | null;
   themeConfig: ThemeConfig | null;
-  notificationConfig: NotificationConfig | null;
   isLoading: boolean;
   error: string | null;
-  loadLLMConfig: () => Promise<void>;
-  saveLLMConfig: (config: LLMConfig) => Promise<void>;
+  loadLLMProviders: () => Promise<void>;
+  saveLLMProviders: (providers: LLMProvider[]) => Promise<void>;
+  fetchModels: (baseUrl: string, apiKey: string) => Promise<LLMModel[]>;
   loadGitConfig: () => Promise<void>;
-  saveGitConfig: (config: GitConfig) => Promise<void>;
-  loadSyncConfig: () => Promise<void>;
-  saveSyncConfig: (config: SyncConfig) => Promise<void>;
+  saveGitConfig: (path: string) => Promise<void>;
   loadThemeConfig: () => Promise<void>;
   saveThemeConfig: (config: ThemeConfig) => Promise<void>;
-  loadNotificationConfig: () => Promise<void>;
-  saveNotificationConfig: (config: NotificationConfig) => Promise<void>;
-  exportDatabase: () => Promise<void>;
-  importDatabase: () => Promise<void>;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
-  llmConfig: null,
+export const useSettingsStore = create<SettingsState>((set, get) => ({
+  providers: [],
+  availableModels: [],
   gitConfig: null,
-  syncConfig: null,
   themeConfig: null,
-  notificationConfig: null,
   isLoading: false,
   error: null,
 
-  loadLLMConfig: async () => {
+  loadLLMProviders: async () => {
     set({ isLoading: true, error: null });
     try {
-      const apiKey = await invoke<string>("get_config", {
-        key: "llm.openai.api_key",
-      }).catch(() => null);
-      const baseUrl = await invoke<string>("get_config", {
-        key: "llm.openai.base_url",
-      }).catch(() => null);
-      const model = await invoke<string>("get_config", {
-        key: "llm.openai.model",
-      }).catch(() => "gpt-4o");
-
-      if (apiKey) {
-        set({
-          llmConfig: {
-            apiKey,
-            baseUrl: baseUrl || undefined,
-            model: model || "gpt-4o",
-          },
-        });
-      }
+      const providers = await invoke<LLMProvider[]>("list_llm_providers");
+      set({ providers: providers || [], isLoading: false });
     } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
+      set({ error: (error as Error).message, isLoading: false });
     }
   },
 
-  saveLLMConfig: async (config: LLMConfig) => {
+  saveLLMProviders: async (providers: LLMProvider[]) => {
     set({ isLoading: true, error: null });
     try {
-      await invoke("set_config", {
-        key: "llm.openai.api_key",
-        value: config.apiKey,
-      });
-      if (config.baseUrl) {
-        await invoke("set_config", {
-          key: "llm.openai.base_url",
-          value: config.baseUrl,
-        });
-      } else {
-        await invoke("delete_config", { key: "llm.openai.base_url" });
-      }
-      await invoke("set_config", {
-        key: "llm.openai.model",
-        value: config.model,
-      });
-
-      set({ llmConfig: config });
+      await invoke("save_llm_providers", { providers });
+      set({ providers, isLoading: false });
     } catch (error) {
-      set({ error: (error as Error).message });
+      set({ error: (error as Error).message, isLoading: false });
       throw error;
-    } finally {
-      set({ isLoading: false });
+    }
+  },
+
+  fetchModels: async (baseUrl: string, apiKey: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const models = await invoke<LLMModel[]>("fetch_llm_models", {
+        baseUrl,
+        apiKey,
+      });
+      set({ availableModels: models || [], isLoading: false });
+      return models || [];
+    } catch (error) {
+      set({ error: (error as Error).message, isLoading: false });
+      throw error;
     }
   },
 
   loadGitConfig: async () => {
     set({ isLoading: true, error: null });
     try {
-      const config = await invoke<{
-        username: string | null;
-        email: string | null;
-        sshKeyPath: string | null;
-      }>("get_git_config");
-
+      const [detectedPath, executablePath] = await Promise.all([
+        invoke<string | null>("detect_git_path"),
+        invoke<string | null>("get_git_executable_path"),
+      ]);
       set({
-        gitConfig: {
-          username: config.username || "",
-          email: config.email || "",
-          sshKeyPath: config.sshKeyPath || undefined,
-        },
+        gitConfig: { detectedPath, executablePath },
+        isLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
+      set({ error: (error as Error).message, isLoading: false });
     }
   },
 
-  saveGitConfig: async (config: GitConfig) => {
+  saveGitConfig: async (path: string) => {
     set({ isLoading: true, error: null });
     try {
-      await invoke("save_git_config", {
-        username: config.username,
-        email: config.email,
-        sshKeyPath: config.sshKeyPath,
-      });
-
-      set({ gitConfig: config });
-    } catch (error) {
-      set({ error: (error as Error).message });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  loadSyncConfig: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const config = await invoke<{
-        autoSyncEnabled: boolean;
-        syncInterval: "daily" | "weekly" | "monthly" | "never";
-      }>("get_sync_config");
-
+      await invoke("set_git_executable_path", { path });
+      const gitConfig = get().gitConfig;
       set({
-        syncConfig: {
-          autoSyncEnabled: config.autoSyncEnabled,
-          syncInterval: config.syncInterval,
-        },
+        gitConfig: { ...gitConfig!, executablePath: path },
+        isLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  saveSyncConfig: async (config: SyncConfig) => {
-    set({ isLoading: true, error: null });
-    try {
-      await invoke("save_sync_config", {
-        autoSyncEnabled: config.autoSyncEnabled,
-        syncInterval: config.syncInterval,
-      });
-
-      set({ syncConfig: config });
-    } catch (error) {
-      set({ error: (error as Error).message });
+      set({ error: (error as Error).message, isLoading: false });
       throw error;
-    } finally {
-      set({ isLoading: false });
     }
   },
 
@@ -194,11 +104,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       const theme = await invoke<string>("get_config", {
         key: "app.theme",
       }).catch(() => "light");
-      const language = await invoke<string>("get_config", {
-        key: "app.language",
-      }).catch(() => "en");
 
-      // Apply theme to DOM
       const root = window.document.documentElement;
       root.classList.remove("light", "dark");
       root.classList.add(theme || "light");
@@ -206,13 +112,11 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({
         themeConfig: {
           theme: (theme || "light") as "light" | "dark",
-          language: (language || "en") as "zh" | "en",
         },
+        isLoading: false,
       });
     } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
+      set({ error: (error as Error).message, isLoading: false });
     }
   },
 
@@ -223,131 +127,15 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         key: "app.theme",
         value: config.theme,
       });
-      await invoke("set_config", {
-        key: "app.language",
-        value: config.language,
-      });
 
-      // Apply theme to DOM immediately
       const root = window.document.documentElement;
       root.classList.remove("light", "dark");
       root.classList.add(config.theme);
 
-      set({ themeConfig: config });
+      set({ themeConfig: config, isLoading: false });
     } catch (error) {
-      set({ error: (error as Error).message });
+      set({ error: (error as Error).message, isLoading: false });
       throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  exportDatabase: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      // Get database path from backend
-      const dbPath = await invoke<string>("export_db");
-
-      // Generate default backup filename with date
-      const date = new Date().toISOString().split("T")[0].replace(/-/g, "");
-      const defaultFileName = `skillvault-backup-${date}.db`;
-
-      // Let user select save location
-      const savePath = await save({
-        defaultPath: defaultFileName,
-        filters: [
-          {
-            name: "Database Files",
-            extensions: ["db"],
-          },
-        ],
-      });
-
-      if (!savePath) {
-        // User canceled save dialog
-        return;
-      }
-
-      // Copy database file to user selected location
-      await copyFile(dbPath, savePath);
-    } catch (error) {
-      set({ error: (error as Error).message });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  importDatabase: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      // Let user select backup file
-      const selectedPath = await open({
-        multiple: false,
-        filters: [
-          {
-            name: "Database Files",
-            extensions: ["db"],
-          },
-        ],
-      });
-
-      if (!selectedPath || Array.isArray(selectedPath)) {
-        // User canceled or selected multiple files
-        return;
-      }
-
-      // Call backend import command
-      await invoke("import_db", { backupPath: selectedPath });
-    } catch (error) {
-      set({ error: (error as Error).message });
-      throw error;
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  loadNotificationConfig: async () => {
-    set({ isLoading: true, error: null });
-    try {
-      const soundEnabled = await invoke<boolean>("get_config", {
-        key: "notifications.sound_enabled",
-      }).catch(() => true);
-      const desktopNotificationsEnabled = await invoke<boolean>("get_config", {
-        key: "notifications.desktop_enabled",
-      }).catch(() => false);
-
-      set({
-        notificationConfig: {
-          soundEnabled,
-          desktopNotificationsEnabled,
-        },
-      });
-    } catch (error) {
-      set({ error: (error as Error).message });
-    } finally {
-      set({ isLoading: false });
-    }
-  },
-
-  saveNotificationConfig: async (config: NotificationConfig) => {
-    set({ isLoading: true, error: null });
-    try {
-      await invoke("set_config", {
-        key: "notifications.sound_enabled",
-        value: config.soundEnabled,
-      });
-      await invoke("set_config", {
-        key: "notifications.desktop_enabled",
-        value: config.desktopNotificationsEnabled,
-      });
-
-      set({ notificationConfig: config });
-    } catch (error) {
-      set({ error: (error as Error).message });
-      throw error;
-    } finally {
-      set({ isLoading: false });
     }
   },
 }));

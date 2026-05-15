@@ -15,6 +15,8 @@ export interface Skill {
   firstDiscoveredAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  dispatchCount: number;
+  repositoryName?: string;
 }
 
 export interface CreateSkill {

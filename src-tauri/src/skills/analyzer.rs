@@ -1,7 +1,7 @@
 use sqlx::SqlitePool;
 
 use crate::db::skill::Skill;
-use crate::llm::{LLMClient, LLMConfig, OpenAIClient};
+use crate::llm::{LLMClient, LLMConfig, OpenAIClient, LLMProvider};
 
 #[tauri::command]
 pub async fn analyze_skill(
@@ -16,7 +16,11 @@ pub async fn analyze_skill(
     let content = std::fs::read_to_string(&skill.local_path)
         .map_err(|e| format!("Failed to read skill file: {}", e))?;
 
-    let llm_config = LLMConfig::from_db(&pool).await?;
+    let provider = LLMProvider::get_default(pool.inner())
+        .await?
+        .ok_or_else(|| "No LLM provider configured. Please add a provider in Settings.".to_string())?;
+
+    let llm_config = LLMConfig::from(&provider);
     let client = OpenAIClient::new(&llm_config);
 
     let result = client

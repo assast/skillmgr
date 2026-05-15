@@ -2,23 +2,19 @@ import { useEffect, useRef, useState, memo, useCallback } from "react";
 import { useSkillStore } from "../store/skillStore";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "../components/ui/card";
+import { Card } from "../components/ui/card";
 import {
   RefreshCw,
   Edit,
-  Trash2,
   Search,
   AlertCircle,
   Send,
   CheckSquare,
   Square,
+  X,
+  Plus,
+  Tag,
+  Folder,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DispatchDialog } from "../components/skills/DispatchDialog";
@@ -63,9 +59,7 @@ interface SkillCardProps {
   isSelected: boolean;
   onToggleSelect: (skillId: string) => void;
   onDispatch: (skill: Skill) => void;
-  onDelete: (id: string, name: string) => void;
-  getStatusColor: (status: string) => string;
-  getSourceTypeColor: (sourceType: string) => string;
+  onEditTags: (skill: Skill) => void;
 }
 
 const SkillCard = memo(
@@ -74,96 +68,95 @@ const SkillCard = memo(
     isSelected,
     onToggleSelect,
     onDispatch,
-    onDelete,
-    getStatusColor,
-    getSourceTypeColor,
+    onEditTags,
   }: SkillCardProps) => {
     return (
-      <Card className="hover:scale-[1.01] hover:bg-white/75">
-        <CardHeader>
-          <div className="flex justify-between items-start">
-            <div className="flex items-start gap-3">
-              <button
-                onClick={() => onToggleSelect(skill.id)}
-                className="mt-1 focus:outline-none cursor-pointer"
-              >
-                {isSelected ? (
-                  <CheckSquare className="h-5 w-5 text-teal-500" />
-                ) : (
-                  <Square className="h-5 w-5 text-muted-foreground/50" />
-                )}
-              </button>
-              <CardTitle className="text-xl font-semibold">
-                {skill.name}
-              </CardTitle>
-            </div>
-            <Badge className={getStatusColor(skill.status)}>
-              {skill.status}
-            </Badge>
-          </div>
-          <CardDescription className="flex items-center gap-2 mt-1">
-            <Badge className={getSourceTypeColor(skill.sourceType)}>
-              {skill.sourceType}
-            </Badge>
-            <Badge className="bg-white/60 text-foreground/70 border-white/30">
-              {skill.type}
-            </Badge>
-            {skill.qualityScore && (
-              <Badge className="bg-teal-500/10 text-teal-600 border-teal-500/20">
-                {skill.qualityScore}/100
-              </Badge>
+      <Card className="grid grid-rows-[auto_auto_1fr_auto] gap-0 py-0 h-full hover:scale-[1.01] hover:bg-white/75">
+        {/* Row 1: Checkbox + Name + Dispatch Count */}
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+          <button
+            onClick={() => onToggleSelect(skill.id)}
+            className="focus:outline-none cursor-pointer"
+          >
+            {isSelected ? (
+              <CheckSquare className="h-4.5 w-4.5 text-teal-500" />
+            ) : (
+              <Square className="h-4.5 w-4.5 text-muted-foreground/40" />
             )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {skill.description && (
-            <p className="text-muted-foreground mb-4 line-clamp-2">
+          </button>
+          <h3 className="text-base font-semibold truncate flex-1">
+            {skill.name}
+          </h3>
+          {skill.dispatchCount > 0 ? (
+            <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
+              <Send className="h-3 w-3 mr-0.5" />
+              {skill.dispatchCount}
+            </Badge>
+          ) : (
+            <Badge className="bg-white/40 text-foreground/40 border-white/20">
+              —
+            </Badge>
+          )}
+        </div>
+
+        {/* Row 2: Description (max 2 lines) */}
+        <div className="px-4 pb-2">
+          {skill.description ? (
+            <p className="text-muted-foreground text-sm leading-relaxed line-clamp-2">
               {skill.description}
             </p>
+          ) : (
+            <p className="text-muted-foreground/40 text-sm italic">
+              No description
+            </p>
           )}
-          {skill.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              {skill.tags.map((tag) => (
-                <Badge
-                  key={tag}
-                  className="bg-white/60 text-foreground/70 border-white/30"
-                >
-                  {tag}
-                </Badge>
-              ))}
-            </div>
+        </div>
+
+        {/* Row 3: Repo name + Tags (max 3) */}
+        <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
+          {skill.repositoryName && (
+            <span className="inline-flex items-center gap-1 rounded-md bg-white/60 text-foreground/70 px-2 py-0.5 text-xs font-medium border border-white/30">
+              <Folder className="h-3 w-3" />
+              {skill.repositoryName}
+            </span>
           )}
-          {skill.dependencies.length > 0 && (
-            <div className="mt-4 text-sm text-muted-foreground">
-              <span className="font-medium">Dependencies: </span>
-              {skill.dependencies.length}
-            </div>
-          )}
-        </CardContent>
-        <CardFooter className="flex justify-between">
-          <div className="text-xs text-muted-foreground">
-            Updated {new Date(skill.updatedAt).toLocaleDateString()}
-          </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" onClick={() => onDispatch(skill)}>
-              <Send className="h-4 w-4 mr-1" />
-              Dispatch
-            </Button>
-            <Button variant="ghost" size="sm" disabled>
-              <Edit className="h-4 w-4 mr-1" />
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-red-500 hover:text-red-600 hover:bg-red-50/50"
-              onClick={() => onDelete(skill.id, skill.name)}
+          {skill.tags.slice(0, 3).map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 text-teal-700 px-2 py-0.5 text-xs font-medium"
             >
-              <Trash2 className="h-4 w-4 mr-1" />
-              Delete
+              <Tag className="h-3 w-3" />
+              {tag}
+            </span>
+          ))}
+          {skill.tags.length > 3 && (
+            <span className="text-xs text-muted-foreground">
+              +{skill.tags.length - 3}
+            </span>
+          )}
+        </div>
+
+        {/* Row 4: Time + Buttons */}
+        <div className="glass-footer flex items-center justify-between px-4 py-3 rounded-b-2xl mt-auto">
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {new Date(skill.updatedAt).toLocaleString("sv-SE", {
+              year: "numeric",
+              month: "2-digit",
+              day: "2-digit",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+            })}
+          </span>
+          <div className="flex gap-1">
+            <Button variant="ghost" size="sm" onClick={() => onEditTags(skill)}>
+              <Edit className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => onDispatch(skill)}>
+              <Send className="h-4 w-4" />
             </Button>
           </div>
-        </CardFooter>
+        </div>
       </Card>
     );
   },
@@ -179,7 +172,7 @@ export function Skills() {
     searchQuery,
     fetchSkills,
     discoverSkills,
-    deleteSkill,
+    updateSkill,
     setSearchQuery,
     clearError,
   } = useSkillStore();
@@ -194,6 +187,10 @@ export function Skills() {
     DispatchMethod.Symlink,
   );
   const [isBulkDispatching, setIsBulkDispatching] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<Skill | null>(null);
+  const [editTagsDialogOpen, setEditTagsDialogOpen] = useState(false);
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [newTagInput, setNewTagInput] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { targetDirs, fetchTargetDirs, bulkDispatch } = useDispatchStore();
@@ -277,46 +274,37 @@ export function Skills() {
     setDispatchDialogOpen(true);
   }, []);
 
-  const handleDelete = useCallback(
-    (id: string, name: string) => {
-      if (window.confirm(`Are you sure you want to delete skill "${name}"?`)) {
-        deleteSkill(id)
-          .then(() => {
-            toast.success("Skill deleted successfully");
-          })
-          .catch((error) => {
-            toast.error(`Failed to delete skill: ${error.message}`);
-          });
-      }
-    },
-    [deleteSkill],
-  );
-
-  const getStatusColor = useCallback((status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-emerald-500/10 text-emerald-600 border-emerald-500/20";
-      case "archived":
-        return "bg-amber-500/10 text-amber-600 border-amber-500/20";
-      case "broken":
-        return "bg-red-500/10 text-red-600 border-red-500/20";
-      default:
-        return "bg-gray-500/10 text-gray-600 border-gray-500/20";
-    }
+  const handleEditTags = useCallback((skill: Skill) => {
+    setEditingSkill(skill);
+    setEditTags([...skill.tags]);
+    setNewTagInput("");
+    setEditTagsDialogOpen(true);
   }, []);
 
-  const getSourceTypeColor = useCallback((sourceType: string) => {
-    switch (sourceType) {
-      case "github":
-        return "bg-blue-500/10 text-blue-600 border-blue-500/20";
-      case "private-git":
-        return "bg-purple-500/10 text-purple-600 border-purple-500/20";
-      case "local":
-        return "bg-orange-500/10 text-orange-600 border-orange-500/20";
-      default:
-        return "bg-gray-500/10 text-gray-600 border-gray-500/20";
+  const handleAddTag = useCallback(() => {
+    const tag = newTagInput.trim().toLowerCase();
+    if (tag && !editTags.includes(tag)) {
+      setEditTags((prev) => [...prev, tag]);
+      setNewTagInput("");
     }
+  }, [newTagInput, editTags]);
+
+  const handleRemoveTag = useCallback((tag: string) => {
+    setEditTags((prev) => prev.filter((t) => t !== tag));
   }, []);
+
+  const handleSaveTags = useCallback(async () => {
+    if (!editingSkill) return;
+    try {
+      await updateSkill(editingSkill.id, { tags: editTags });
+      toast.success("Tags updated");
+      setEditTagsDialogOpen(false);
+    } catch (error) {
+      toast.error(
+        `Failed to update tags: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }, [editingSkill, editTags, updateSkill]);
 
   const handleBulkDispatch = async () => {
     if (selectedSkillIds.size === 0 || !selectedTargetDirId) {
@@ -399,7 +387,7 @@ export function Skills() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground/60" />
           <Input
             ref={searchInputRef}
-            placeholder="Search skills by name, description, or tags..."
+            placeholder="Search skills by name, description, or tags... (⌘K)"
             value={searchQuery}
             onChange={handleSearch}
             className="pl-10 glass-input rounded-xl"
@@ -442,9 +430,7 @@ export function Skills() {
               isSelected={selectedSkillIds.has(skill.id)}
               onToggleSelect={toggleSkillSelection}
               onDispatch={handleDispatch}
-              onDelete={handleDelete}
-              getStatusColor={getStatusColor}
-              getSourceTypeColor={getSourceTypeColor}
+              onEditTags={handleEditTags}
             />
           ))}
         </div>
@@ -547,6 +533,70 @@ export function Skills() {
                 `Dispatch ${selectedSkillIds.size} Skills`
               )}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Tags Dialog */}
+      <Dialog open={editTagsDialogOpen} onOpenChange={setEditTagsDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Tags</DialogTitle>
+            <DialogDescription>
+              Manage tags for "{editingSkill?.name}"
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="flex flex-wrap gap-2 min-h-[2rem]">
+              {editTags.length === 0 && (
+                <span className="text-sm text-muted-foreground">No tags</span>
+              )}
+              {editTags.map((tag) => (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 text-teal-700 px-2.5 py-1 text-sm font-medium"
+                >
+                  <Tag className="h-3 w-3" />
+                  {tag}
+                  <button
+                    onClick={() => handleRemoveTag(tag)}
+                    className="ml-0.5 hover:text-red-500 cursor-pointer"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <div className="relative">
+              <Input
+                placeholder="Add a tag..."
+                value={newTagInput}
+                onChange={(e) => setNewTagInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddTag();
+                  }
+                }}
+                className="pr-9"
+              />
+              <button
+                onClick={handleAddTag}
+                disabled={!newTagInput.trim()}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-teal-500/10 disabled:opacity-30 disabled:hover:bg-transparent transition-colors cursor-pointer disabled:cursor-not-allowed"
+              >
+                <Plus className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditTagsDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleSaveTags}>Save Tags</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
