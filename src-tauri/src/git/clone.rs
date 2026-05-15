@@ -14,8 +14,8 @@ pub async fn clone(url: &str, path: &str, branch: &str, auth_type: &str, auth_co
     }
 
     let mut callbacks = RemoteCallbacks::new();
-    callbacks.credentials(move |_url, _username_from_url, _allowed_types| {
-        get_auth(auth_type, auth_config)
+    callbacks.credentials(move |_url, username_from_url, allowed_types| {
+        get_auth(auth_type, auth_config, username_from_url, allowed_types)
     });
 
     let mut fetch_options = FetchOptions::new();

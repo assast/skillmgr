@@ -249,7 +249,7 @@ export function AddRepositoryDialog({
                     onClick={() => setAuthType("none")}
                     disabled={submitting}
                   >
-                    None (Public)
+                    Default
                   </Button>
                   <Button
                     type="button"

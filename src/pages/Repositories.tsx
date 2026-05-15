@@ -366,7 +366,7 @@ function EditRepoForm({
                     disabled={saving}
                   >
                     {type === "none"
-                      ? "None"
+                      ? "Default"
                       : type === "http"
                         ? "User/Pass"
                         : type.charAt(0).toUpperCase() + type.slice(1)}

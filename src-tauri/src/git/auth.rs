@@ -17,9 +17,16 @@ struct HttpAuthConfig {
 }
 
 /// 获取Git认证凭证
-pub fn get_auth(auth_type: &str, auth_config: &str) -> Result<Cred, git2::Error> {
+pub fn get_auth(auth_type: &str, auth_config: &str, username_from_url: Option<&str>, allowed_types: git2::CredentialType) -> Result<Cred, git2::Error> {
     match auth_type {
-        "none" => Cred::default(),
+        "none" => {
+            // System default: try SSH agent for SSH URLs, credential helper for HTTPS
+            if allowed_types.contains(git2::CredentialType::SSH_KEY) {
+                Cred::ssh_key_from_agent(username_from_url.unwrap_or("git"))
+            } else {
+                Cred::default()
+            }
+        }
         "ssh" => {
             let config: SshAuthConfig = serde_json::from_str(auth_config)
                 .map_err(|e| git2::Error::from_str(&format!("Invalid SSH auth config: {}", e)))?;
