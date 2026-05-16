@@ -61,5 +61,11 @@ pub async fn analyze_skill(
         .await
         .map_err(|e| format!("Failed to update skill: {}", e))?;
 
-    Ok(skill)
+    // Re-fetch with JOINs to include repository_name and dispatch_count
+    let full_skill = crate::db::skill::get_skill_full_by_id(pool.inner(), skill_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Skill with id {} not found after update", skill_id))?;
+
+    Ok(full_skill)
 }

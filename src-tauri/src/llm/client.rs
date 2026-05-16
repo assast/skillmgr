@@ -18,6 +18,10 @@ pub struct LLMProvider {
 
 const PROVIDERS_CONFIG_KEY: &str = "llm.providers";
 
+/// Default LLM configuration constants
+pub const DEFAULT_LLM_BASE_URL: &str = "https://api.openai.com/v1";
+pub const DEFAULT_LLM_MODEL: &str = "gpt-4o";
+
 impl LLMProvider {
     /// Load all providers from DB
     pub async fn list_from_db(pool: &SqlitePool) -> Result<Vec<LLMProvider>, String> {
@@ -33,10 +37,10 @@ impl LLMProvider {
         if let Some(api_key) = api_key {
             let base_url = Config::get(pool, "llm.openai.base_url").await
                 .map_err(|e| e.to_string())?
-                .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                .unwrap_or_else(|| DEFAULT_LLM_BASE_URL.to_string());
             let model = Config::get(pool, "llm.openai.model").await
                 .map_err(|e| e.to_string())?
-                .unwrap_or_else(|| "gpt-4o".to_string());
+                .unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string());
 
             let provider = LLMProvider {
                 id: uuid::Uuid::new_v4().to_string(),
@@ -112,7 +116,7 @@ impl OpenAIClient {
         let base_url = config
             .base_url
             .clone()
-            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+            .unwrap_or_else(|| DEFAULT_LLM_BASE_URL.to_string());
 
         Self {
             client: reqwest::Client::new(),

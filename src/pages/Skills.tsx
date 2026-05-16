@@ -358,7 +358,11 @@ export function Skills() {
   }, []);
 
   const handleAddTag = useCallback(() => {
-    const tag = newTagInput.trim().toLowerCase();
+    const tag = newTagInput
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, "")
+      .slice(0, 50);
     if (tag && !editTags.includes(tag)) {
       setEditTags((prev) => [...prev, tag]);
       setNewTagInput("");

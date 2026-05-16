@@ -5,6 +5,7 @@ use tauri::Manager;
 
 mod db;
 mod config;
+mod error;
 mod git;
 mod skills;
 mod llm;
@@ -14,6 +15,13 @@ mod test_utils;
 
 use crate::db::dispatch_template::{DispatchTemplate, CreateDispatchTemplateInput, UpdateDispatchTemplateInput};
 use crate::db::dispatch::DispatchMethod;
+
+/// Maximum concurrent background operations (git clone/sync, skill scanning)
+const MAX_CONCURRENT_BG_OPS: usize = 4;
+static BG_SEMAPHORE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(MAX_CONCURRENT_BG_OPS);
+
+/// Database connection pool size
+const DB_MAX_CONNECTIONS: u32 = 5;
 
 // ------------------------------
 // General Config Commands
@@ -26,7 +34,7 @@ async fn get_config(
 ) -> Result<Option<String>, String> {
     crate::db::config::Config::get(&pool, key)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| error::sanitize_error("get config", e))
 }
 
 #[tauri::command]
@@ -37,7 +45,7 @@ async fn set_config(
 ) -> Result<(), String> {
     crate::db::config::Config::set(&pool, key, value)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| error::sanitize_error("set config", e))
         .map(|_| ())
 }
 
@@ -48,7 +56,7 @@ async fn delete_config(
 ) -> Result<(), String> {
     crate::db::config::Config::delete(&pool, key)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| error::sanitize_error("delete config", e))
 }
 
 // ------------------------------
@@ -95,7 +103,7 @@ async fn get_git_executable_path(
 ) -> Result<Option<String>, String> {
     crate::db::config::Config::get(&pool, "git.executable_path")
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| error::sanitize_error("get git path", e))
 }
 
 #[tauri::command]
@@ -105,7 +113,7 @@ async fn set_git_executable_path(
 ) -> Result<(), String> {
     crate::db::config::Config::set(&pool, "git.executable_path", path)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| error::sanitize_error("set git path", e))?;
     Ok(())
 }
 
@@ -131,12 +139,12 @@ async fn add_repository(
 ) -> Result<db::repository::Repository, String> {
     let base_path = config::base_path::get_base_path(&pool)
         .await
-        .map_err(|e| e.to_string())?
+        .map_err(|e| error::sanitize_error("get base path", e))?
         .ok_or_else(|| "Base path not set, please configure it first".to_string())?;
 
     match source_type {
         "github" | "private-git" | "local" => {},
-        _ => return Err(format!("Invalid source type: {}, must be one of github, private-git, local", source_type)),
+        _ => return Err(error::AppError::validation(format!("Invalid source type: {}", source_type)).to_string()),
     }
 
     let base_path = Path::new(&base_path);
@@ -156,7 +164,7 @@ async fn add_repository(
         let repo = db::repository::Repository::create(
             &pool, name, Some(url), path, source_type, local_path_str, "syncing", skills_path,
             auth_type, auth_config, branch,
-        ).await.map_err(|e| e.to_string())?;
+        ).await.map_err(|e| error::sanitize_error("create repository", e))?;
 
         // Clone in background
         let repo_id = repo.id.clone();
@@ -167,6 +175,7 @@ async fn add_repository(
         let auth_config_owned = auth_config.unwrap_or("{}").to_string();
         let lp_owned = local_path_str.to_string();
         tauri::async_runtime::spawn(async move {
+            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
             let result = git::clone_repository(
                 &url_owned, &lp_owned, &branch_owned, &auth_type_owned, &auth_config_owned,
             ).await;
@@ -177,11 +186,11 @@ async fn add_repository(
                         .execute(&pool_clone)
                         .await
                     {
-                        eprintln!("Failed to update repo {} status: {}", repo_id, e);
+                        tracing::error!(repo_id = %repo_id, error = %e, "Failed to update repo status");
                     }
                     if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
                         if let Err(e) = skills::discovery::scan_repository(&pool_clone, &repo, false).await {
-                            eprintln!("Failed to scan repo {} for skills: {}", repo_id, e);
+                            tracing::error!(repo_id = %repo_id, error = %e, "Failed to scan repo for skills");
                         }
                     }
                 }
@@ -192,7 +201,7 @@ async fn add_repository(
                         .execute(&pool_clone)
                         .await
                     {
-                        eprintln!("Failed to update repo {} error status: {}", repo_id, db_err);
+                        tracing::error!(repo_id = %repo_id, error = %db_err, "Failed to update repo error status");
                     }
                 }
             }
@@ -215,7 +224,7 @@ async fn add_repository(
         let repo = db::repository::Repository::create(
             &pool, name, None, path, source_type, local_path_str, "syncing", skills_path,
             None, None, None,
-        ).await.map_err(|e| e.to_string())?;
+        ).await.map_err(|e| error::sanitize_error("create repository", e))?;
 
         // Copy/symlink in background
         let repo_id = repo.id.clone();
@@ -224,6 +233,7 @@ async fn add_repository(
         let src_owned = path.to_string();
         let should_copy = copy.unwrap_or(false);
         tauri::async_runtime::spawn(async move {
+            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
             let result = if should_copy {
                 dispatch::copy::copy_dir(Path::new(&src_owned), Path::new(&lp_owned))
             } else {
@@ -245,11 +255,11 @@ async fn add_repository(
                         .execute(&pool_clone)
                         .await
                     {
-                        eprintln!("Failed to update repo {} status: {}", repo_id, e);
+                        tracing::error!(repo_id = %repo_id, error = %e, "Failed to update repo status");
                     }
                     if let Ok(Some(repo)) = db::repository::Repository::get_by_id(&pool_clone, &repo_id).await.map_err(|e| e.to_string()) {
                         if let Err(e) = skills::discovery::scan_repository(&pool_clone, &repo, false).await {
-                            eprintln!("Failed to scan repo {} for skills: {}", repo_id, e);
+                            tracing::error!(repo_id = %repo_id, error = %e, "Failed to scan repo for skills");
                         }
                     }
                 }
@@ -260,7 +270,7 @@ async fn add_repository(
                         .execute(&pool_clone)
                         .await
                     {
-                        eprintln!("Failed to update repo {} error status: {}", repo_id, db_err);
+                        tracing::error!(repo_id = %repo_id, error = %db_err, "Failed to update repo error status");
                     }
                 }
             }
@@ -276,7 +286,7 @@ async fn add_repository(
 async fn list_repositories(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<Vec<db::repository::Repository>, String> {
-    db::repository::Repository::get_all(&pool).await.map_err(|e| e.to_string())
+    db::repository::Repository::get_all(&pool).await.map_err(|e| error::sanitize_error("list repositories", e))
 }
 
 #[tauri::command]
@@ -284,7 +294,7 @@ async fn get_repository(
     id: &str,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<Option<db::repository::Repository>, String> {
-    db::repository::Repository::get_by_id(&pool, id).await.map_err(|e| e.to_string())
+    db::repository::Repository::get_by_id(&pool, id).await.map_err(|e| error::sanitize_error("get repository", e))
 }
 
 #[tauri::command]
@@ -293,9 +303,9 @@ async fn delete_repository(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<(), String> {
     let repo = db::repository::Repository::get_by_id(&pool, id)
-        .await.map_err(|e| e.to_string())?;
+        .await.map_err(|e| error::sanitize_error("get repository", e))?;
     if let Some(repo) = repo {
-        repo.delete(&pool).await.map_err(|e| e.to_string())?;
+        repo.delete(&pool).await.map_err(|e| error::sanitize_error("delete repository", e))?;
     }
     Ok(())
 }
@@ -312,44 +322,42 @@ async fn update_repository(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
     db::repository::Repository::get_by_id(&pool, id)
-        .await.map_err(|e| e.to_string())?
+        .await.map_err(|e| error::sanitize_error("get repository", e))?
         .ok_or_else(|| "Repository not found".to_string())?;
 
-    // Update basic fields
     if let Some(name) = name {
         sqlx::query("UPDATE repositories SET name = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(name).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository name", e))?;
     }
     if let Some(sp) = skills_path {
         sqlx::query("UPDATE repositories SET skills_path = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(sp).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository skills path", e))?;
     }
     if let Some(u) = url {
         sqlx::query("UPDATE repositories SET url = ?1, path = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(u).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository URL", e))?;
     }
     if let Some(b) = branch {
         sqlx::query("UPDATE repositories SET branch = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(b).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository branch", e))?;
     }
     if let Some(at) = auth_type {
         sqlx::query("UPDATE repositories SET auth_type = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(at).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository auth type", e))?;
     }
     if let Some(ac) = auth_config {
         sqlx::query("UPDATE repositories SET auth_config = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
             .bind(ac).bind(id)
-            .execute(pool.inner()).await.map_err(|e| e.to_string())?;
+            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository auth config", e))?;
     }
 
-    // Reload after updates
     let updated = db::repository::Repository::get_by_id(&pool, id)
-        .await.map_err(|e| e.to_string())?
+        .await.map_err(|e| error::sanitize_error("get repository", e))?
         .ok_or_else(|| "Repository not found after update".to_string())?;
 
     Ok(updated)
@@ -361,11 +369,10 @@ async fn sync_repository(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
     let repo = db::repository::Repository::get_by_id(&pool, id)
-        .await.map_err(|e| e.to_string())?
+        .await.map_err(|e| error::sanitize_error("get repository", e))?
         .ok_or_else(|| "Repository not found".to_string())?;
 
-    // Set syncing status immediately
-    repo.update(&pool, None, None, None, None, None, Some("syncing"), None).await.map_err(|e| e.to_string())?;
+    repo.update(&pool, None, None, None, None, None, Some("syncing"), None).await.map_err(|e| error::sanitize_error("update repository status", e))?;
 
     let repo_id = repo.id.clone();
     let pool_clone = pool.inner().clone();
@@ -373,6 +380,7 @@ async fn sync_repository(
     tauri::async_runtime::spawn_blocking(move || {
         let rt = tokio::runtime::Handle::current();
         rt.block_on(async {
+            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
             let result = async {
                 let fresh_repo = db::repository::Repository::get_by_id(&pool_clone, &repo_id)
                     .await.map_err(|e| e.to_string())?
@@ -436,7 +444,7 @@ async fn sync_repository(
 async fn sync_all_repositories(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<Vec<db::repository::Repository>, String> {
-    let repos = db::repository::Repository::get_all(&pool).await.map_err(|e| e.to_string())?;
+    let repos = db::repository::Repository::get_all(&pool).await.map_err(|e| error::sanitize_error("list repositories", e))?;
 
     for repo in &repos {
         if repo.source_type != "local" && repo.url.is_some() {
@@ -448,6 +456,7 @@ async fn sync_all_repositories(
             tauri::async_runtime::spawn_blocking(move || {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async {
+                    let _permit = BG_SEMAPHORE.acquire().await.unwrap();
                     let fresh_repo = match db::repository::Repository::get_by_id(&pool_clone, &repo_id).await {
                         Ok(Some(r)) => r,
                         _ => return,
@@ -493,7 +502,7 @@ async fn sync_all_repositories(
     }
 
     // Return all repos with their current statuses
-    db::repository::Repository::get_all(&pool).await.map_err(|e| e.to_string())
+    db::repository::Repository::get_all(&pool).await.map_err(|e| error::sanitize_error("list repositories", e))
 }
 
 #[tauri::command]
@@ -505,7 +514,7 @@ async fn get_repository_skill_counts(
     )
     .fetch_all(&*pool)
     .await
-    .map_err(|e| e.to_string())?;
+    .map_err(|e| error::sanitize_error("get skill counts", e))?;
 
     Ok(rows.into_iter().collect())
 }
@@ -526,14 +535,14 @@ async fn create_dispatch_template(
         description,
         skill_ids,
     };
-    DispatchTemplate::create(&pool, input).await.map_err(|e| e.to_string())
+    DispatchTemplate::create(&pool, input).await.map_err(|e| error::sanitize_error("create dispatch template", e))
 }
 
 #[tauri::command]
 async fn list_dispatch_templates(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<Vec<DispatchTemplate>, String> {
-    DispatchTemplate::get_all(&pool).await.map_err(|e| e.to_string())
+    DispatchTemplate::get_all(&pool).await.map_err(|e| error::sanitize_error("list dispatch templates", e))
 }
 
 #[tauri::command]
@@ -541,7 +550,7 @@ async fn get_dispatch_template(
     id: String,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<Option<DispatchTemplate>, String> {
-    DispatchTemplate::get_by_id(&pool, &id).await.map_err(|e| e.to_string())
+    DispatchTemplate::get_by_id(&pool, &id).await.map_err(|e| error::sanitize_error("get dispatch template", e))
 }
 
 #[tauri::command]
@@ -557,7 +566,7 @@ async fn update_dispatch_template(
         description,
         skill_ids,
     };
-    DispatchTemplate::update(&pool, &id, input).await.map_err(|e| e.to_string())
+    DispatchTemplate::update(&pool, &id, input).await.map_err(|e| error::sanitize_error("update dispatch template", e))
 }
 
 #[tauri::command]
@@ -565,7 +574,7 @@ async fn delete_dispatch_template(
     id: String,
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<bool, String> {
-    DispatchTemplate::delete(&pool, &id).await.map_err(|e| e.to_string())
+    DispatchTemplate::delete(&pool, &id).await.map_err(|e| error::sanitize_error("delete dispatch template", e))
 }
 
 #[tauri::command]
@@ -576,14 +585,14 @@ async fn dispatch_template_cmd(
     pool: tauri::State<'_, sqlx::SqlitePool>,
 ) -> Result<dispatch::BulkDispatchResult, String> {
     let template = DispatchTemplate::get_by_id(&pool, &template_id)
-        .await.map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Template with id {} not found", template_id))?;
+        .await.map_err(|e| error::sanitize_error("get dispatch template", e))?
+        .ok_or_else(|| "Dispatch template not found".to_string())?;
 
     let dispatch_method = match method.as_str() {
         "symlink" => DispatchMethod::Symlink,
         "copy" => DispatchMethod::Copy,
         "hardlink" => DispatchMethod::Hardlink,
-        _ => return Err(format!("Invalid dispatch method: {}", method)),
+        _ => return Err(error::AppError::validation(format!("Invalid dispatch method: {}", method)).to_string()),
     };
 
     let skill_ids = template.skill_ids_vec()
@@ -593,6 +602,14 @@ async fn dispatch_template_cmd(
 }
 
 fn main() {
+    // Initialize structured logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .init();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
@@ -606,7 +623,7 @@ fn main() {
             let db_url = format!("sqlite:{}?mode=rwc", db_path.to_string_lossy());
             let pool = tauri::async_runtime::block_on(async move {
                 sqlx::sqlite::SqlitePoolOptions::new()
-                    .max_connections(5)
+                    .max_connections(DB_MAX_CONNECTIONS)
                     .connect(&db_url)
                     .await
             })?;
@@ -616,7 +633,7 @@ fn main() {
             let app_handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = db::init_db(&app_handle).await {
-                    eprintln!("Failed to initialize database: {}", e);
+                    tracing::error!(error = %e, "Failed to initialize database");
                 }
             });
 

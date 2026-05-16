@@ -117,6 +117,17 @@ pub async fn bulk_create_skills(
     pool: &sqlx::SqlitePool,
     creates: Vec<CreateSkill>,
 ) -> Result<Vec<Skill>> {
+    let mut tx = pool.begin().await?;
+    let skills = bulk_create_skills_tx(&mut tx, creates).await?;
+    tx.commit().await?;
+    Ok(skills)
+}
+
+/// Bulk create skills within an existing transaction
+pub async fn bulk_create_skills_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    creates: Vec<CreateSkill>,
+) -> Result<Vec<Skill>> {
     if creates.is_empty() {
         return Ok(Vec::new());
     }
@@ -177,17 +188,38 @@ pub async fn bulk_create_skills(
             .push_bind(now);
     });
 
-    query_builder.build().execute(pool).await?;
+    query_builder.build().execute(&mut **tx).await?;
 
     Ok(skills)
 }
 
-/// Get a skill by ID
+/// Get a skill by ID (basic query, no JOINs)
 pub async fn get_skill_by_id(pool: &sqlx::SqlitePool, id: &str) -> Result<Option<Skill>> {
     let row = sqlx::query("SELECT * FROM skills WHERE id = ?")
         .bind(id)
         .fetch_optional(pool)
         .await?;
+
+    match row {
+        Some(row) => Ok(Some(map_row_to_skill(&row)?)),
+        None => Ok(None),
+    }
+}
+
+/// Get a skill by ID with repository name and dispatch count (full JOINs)
+pub async fn get_skill_full_by_id(pool: &sqlx::SqlitePool, id: &str) -> Result<Option<Skill>> {
+    let row = sqlx::query(
+        "SELECT skills.*, \
+         COALESCE(d.cnt, 0) as dispatch_count, \
+         repositories.name as repository_name \
+         FROM skills \
+         LEFT JOIN (SELECT skill_id, COUNT(*) as cnt FROM dispatch GROUP BY skill_id) d ON d.skill_id = skills.id \
+         LEFT JOIN repositories ON skills.repository_id = repositories.id \
+         WHERE skills.id = ?",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
 
     match row {
         Some(row) => Ok(Some(map_row_to_skill(&row)?)),

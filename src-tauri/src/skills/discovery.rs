@@ -1,11 +1,26 @@
 use anyhow::Result;
 use std::path::Path;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use sqlx::SqlitePool;
 use serde::{Serialize, Deserialize};
+use tokio::sync::Mutex;
 
 use crate::db::skill::{Skill, CreateSkill};
 use crate::db::repository::Repository;
+
+/// Per-repository locks to prevent concurrent scans from corrupting data.
+/// Keyed by repository ID.
+static SCAN_LOCKS: std::sync::LazyLock<Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
+
+async fn acquire_scan_lock(repo_id: &str) -> Arc<Mutex<()>> {
+    let mut locks = SCAN_LOCKS.lock().await;
+    locks.entry(repo_id.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
 
 /// Skill discovery options
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +117,10 @@ pub async fn scan_repository(
     repo: &Repository,
     _force: bool,
 ) -> Result<DiscoveryResult> {
+    // Acquire per-repository lock to prevent concurrent scans
+    let lock = acquire_scan_lock(&repo.id).await;
+    let _guard = lock.lock().await;
+
     let mut result = DiscoveryResult {
         discovered_skills: Vec::new(),
         skipped_skills: Vec::new(),
@@ -144,38 +163,68 @@ pub async fn scan_repository(
         return Ok(result);
     }
 
-    // Clean up existing skills before re-scanning
-    sqlx::query("DELETE FROM skills WHERE repository_id = ?")
-        .bind(&repo.id)
-        .execute(pool)
-        .await?;
+    let mut batch = Vec::new();
 
-    // Read immediate subdirectories only (one level deep)
+    // Check if scan_path itself is a skill (contains SKILL.md at root)
+    if scan_path.join("SKILL.md").exists() {
+        let meta = parse_skill_meta(&scan_path);
+        let full_path = scan_path.to_string_lossy().to_string();
+
+        batch.push(CreateSkill {
+            name: meta.name,
+            r#type: "skill".to_string(),
+            source_type: repo.source_type.clone(),
+            repository_id: Some(repo.id.clone()),
+            local_path: full_path,
+            description: meta.description,
+            usage: None,
+            tags: Vec::new(),
+            dependencies: Vec::new(),
+            llm_analyzed: Some(false),
+            quality_score: None,
+            status: "active".to_string(),
+        });
+    }
+
+    // Also scan immediate subdirectories (one level deep)
     let entries = match std::fs::read_dir(&scan_path) {
         Ok(entries) => entries,
         Err(e) => {
-            result.errors.push(format!("Failed to read scan path: {}", e));
+            if batch.is_empty() {
+                result.errors.push(format!("Failed to read scan path: {}", e));
+                return Ok(result);
+            }
+            // Root skill found — persist with transaction
+            let mut tx = pool.begin().await?;
+            sqlx::query("DELETE FROM skills WHERE repository_id = ?")
+                .bind(&repo.id)
+                .execute(&mut *tx)
+                .await?;
+            match crate::db::skill::bulk_create_skills_tx(&mut tx, batch).await {
+                Ok(skills) => {
+                    result.discovered_skills.extend(skills);
+                }
+                Err(e) => {
+                    result.errors.push(format!("Failed to insert skills: {}", e));
+                }
+            }
+            tx.commit().await?;
             return Ok(result);
         }
     };
 
-    let mut batch = Vec::new();
-
     for entry in entries.flatten() {
         let path = entry.path();
 
-        // Only consider directories
         if !path.is_dir() {
             continue;
         }
 
-        // Skip hidden directories
         let file_name = path.file_name().unwrap_or_default().to_string_lossy();
         if file_name.starts_with('.') {
             continue;
         }
 
-        // A skill must have SKILL.md
         if !path.join("SKILL.md").exists() {
             result.skipped_skills.push(path.to_string_lossy().to_string());
             continue;
@@ -200,8 +249,14 @@ pub async fn scan_repository(
         });
     }
 
+    // Wrap DELETE + INSERT in a single transaction
     if !batch.is_empty() {
-        match crate::db::skill::bulk_create_skills(pool, batch).await {
+        let mut tx = pool.begin().await?;
+        sqlx::query("DELETE FROM skills WHERE repository_id = ?")
+            .bind(&repo.id)
+            .execute(&mut *tx)
+            .await?;
+        match crate::db::skill::bulk_create_skills_tx(&mut tx, batch).await {
             Ok(skills) => {
                 result.discovered_skills.extend(skills);
             }
@@ -209,6 +264,13 @@ pub async fn scan_repository(
                 result.errors.push(format!("Failed to insert skills: {}", e));
             }
         }
+        tx.commit().await?;
+    } else {
+        // No new skills found, but still clean up stale ones
+        sqlx::query("DELETE FROM skills WHERE repository_id = ?")
+            .bind(&repo.id)
+            .execute(pool)
+            .await?;
     }
 
     Ok(result)
