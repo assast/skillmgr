@@ -1,4 +1,4 @@
-//! Test utilities for SkillVault backend
+//! Test utilities for Skill Vaults backend
 //!
 //! This module provides common utilities for testing, including:
 //! - In-memory SQLite database setup

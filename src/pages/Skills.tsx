@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, memo, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  memo,
+  useCallback,
+  useLayoutEffect,
+} from "react";
 import { useSkillStore } from "../store/skillStore";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -74,93 +81,148 @@ const SkillCard = memo(
     onEditTags,
     onDetail,
   }: SkillCardProps) => {
+    const maxVisibleTags = 5;
+    const sortedTags = [...skill.tags].sort((a, b) => a.length - b.length);
+    const tagsRowRef = useRef<HTMLDivElement>(null);
+    const [visibleCount, setVisibleCount] = useState(maxVisibleTags);
+
+    const tagsKey = skill.tags.join(",");
+    useLayoutEffect(() => {
+      setVisibleCount(maxVisibleTags);
+    }, [tagsKey]);
+
+    useLayoutEffect(() => {
+      const el = tagsRowRef.current;
+      if (!el) return;
+      if (el.scrollHeight > 36 && visibleCount > 1) {
+        setVisibleCount((prev) => prev - 1);
+      }
+    }, [visibleCount, tagsKey]);
+
+    const visibleTags = sortedTags.slice(0, visibleCount);
+    const hiddenTagCount = skill.tags.length - visibleCount;
+
     return (
-      <Card className="grid grid-rows-[auto_auto_1fr_auto] gap-0 py-0 h-full hover:scale-[1.01] hover:bg-white/75">
-        {/* Row 1: Checkbox + Name + Dispatch Count */}
-        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
+      <Card className="flex flex-col py-0 h-full hover:scale-[1.01] hover:bg-white/75">
+        {/* Row 1: Checkbox + Name + Repo + Dispatch Count */}
+        <div className="px-2.5 pt-2 pb-1 flex items-center gap-1.5">
           <button
             onClick={() => onToggleSelect(skill.id)}
             className="focus:outline-none cursor-pointer"
           >
             {isSelected ? (
-              <CheckSquare className="h-4.5 w-4.5 text-teal-500" />
+              <CheckSquare className="h-4 w-4 text-teal-500" />
             ) : (
-              <Square className="h-4.5 w-4.5 text-muted-foreground/40" />
+              <Square className="h-4 w-4 text-muted-foreground/40" />
             )}
           </button>
-          <h3 className="text-base font-semibold truncate flex-1">
-            {skill.name}
+          <h3 className="text-sm font-semibold truncate flex items-center gap-1.5 leading-none">
+            <span>{skill.name}</span>
+            {skill.repositoryName && (
+              <span className="inline-flex items-center gap-0.5 text-muted-foreground/60 font-normal shrink-0">
+                <Folder className="h-3 w-3" />
+                <span className="text-[10px] leading-none">
+                  {skill.repositoryName}
+                </span>
+              </span>
+            )}
           </h3>
+          <span className="flex-1" />
           {skill.dispatchCount > 0 ? (
-            <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-              <Send className="h-3 w-3 mr-0.5" />
+            <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px] shrink-0">
+              <Send className="h-2.5 w-2.5 mr-0.5" />
               {skill.dispatchCount}
             </Badge>
           ) : (
-            <Badge className="bg-white/40 text-foreground/40 border-white/20">
+            <Badge className="bg-white/40 text-foreground/40 border-white/20 text-[10px] shrink-0">
               —
             </Badge>
           )}
         </div>
 
-        {/* Row 2: Description (max 2 lines) */}
-        <div className="px-4 pb-2">
+        {/* Row 2: Description (max 1 line) */}
+        <div className="px-2.5 pb-1">
           {skill.description ? (
-            <p className="text-muted-foreground text-sm leading-relaxed line-clamp-2">
+            <p className="text-muted-foreground text-xs leading-relaxed line-clamp-1">
               {skill.description}
             </p>
           ) : (
-            <p className="text-muted-foreground/40 text-sm italic">
+            <p className="text-muted-foreground/40 text-xs italic">
               No description
             </p>
           )}
         </div>
 
-        {/* Row 3: Repo name + Tags (max 3) */}
-        <div className="px-4 pb-2 flex items-center gap-1.5 flex-wrap">
-          {skill.repositoryName && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-white/60 text-foreground/70 px-2 py-0.5 text-xs font-medium border border-white/30">
-              <Folder className="h-3 w-3" />
-              {skill.repositoryName}
-            </span>
-          )}
-          {skill.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 rounded-md bg-teal-500/10 text-teal-700 px-2 py-0.5 text-xs font-medium"
-            >
-              <Tag className="h-3 w-3" />
-              {tag}
-            </span>
-          ))}
-          {skill.tags.length > 3 && (
-            <span className="text-xs text-muted-foreground">
-              +{skill.tags.length - 3}
-            </span>
-          )}
+        {/* Row 3: Tags (max 2 rows) */}
+        <div
+          ref={tagsRowRef}
+          className="px-2.5 pb-1 flex items-center gap-0.5 flex-wrap"
+        >
+          {visibleTags.map((tag, i) => {
+            const isLast = i === visibleTags.length - 1;
+            if (isLast && hiddenTagCount > 0) {
+              return (
+                <span
+                  key={tag}
+                  className="inline-flex items-center gap-0.5 whitespace-nowrap"
+                >
+                  <span className="inline-flex items-center gap-0.5 rounded bg-teal-500/10 text-teal-700 px-1.5 py-px text-[10px] font-medium">
+                    <Tag className="h-2.5 w-2.5" />
+                    {tag}
+                  </span>
+                  <span className="inline-flex items-center rounded bg-teal-500/10 text-teal-500/70 px-1.5 py-px text-[10px] font-medium">
+                    +{hiddenTagCount}
+                  </span>
+                </span>
+              );
+            }
+            return (
+              <span
+                key={tag}
+                className="inline-flex items-center gap-0.5 rounded bg-teal-500/10 text-teal-700 px-1.5 py-px text-[10px] font-medium"
+              >
+                <Tag className="h-2.5 w-2.5" />
+                {tag}
+              </span>
+            );
+          })}
         </div>
 
         {/* Row 4: Time + Buttons */}
-        <div className="glass-footer flex items-center justify-between px-4 py-3 rounded-b-2xl mt-auto">
-          <span className="text-xs text-muted-foreground tabular-nums">
+        <div className="glass-footer flex items-center justify-between px-2.5 py-1 rounded-b-2xl mt-auto border-t border-white/30">
+          <span className="text-[10px] text-muted-foreground tabular-nums">
             {new Date(skill.updatedAt).toLocaleString("sv-SE", {
               year: "numeric",
               month: "2-digit",
               day: "2-digit",
               hour: "2-digit",
               minute: "2-digit",
-              second: "2-digit",
             })}
           </span>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="sm" onClick={() => onDetail(skill)}>
-              <Eye className="h-4 w-4" />
+          <div className="flex gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => onDetail(skill)}
+            >
+              <Eye className="h-3.5 w-3.5" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => onEditTags(skill)}>
-              <Edit className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => onEditTags(skill)}
+            >
+              <Edit className="h-3.5 w-3.5" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => onDispatch(skill)}>
-              <Send className="h-4 w-4" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0"
+              onClick={() => onDispatch(skill)}
+            >
+              <Send className="h-3.5 w-3.5" />
             </Button>
           </div>
         </div>
@@ -436,7 +498,7 @@ export function Skills() {
       )}
 
       {skills.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {skills.map((skill) => (
             <SkillCard
               key={skill.id}

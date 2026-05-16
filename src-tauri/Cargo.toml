@@ -1,10 +1,10 @@
 [package]
 name = "skillvault"
 version = "0.1.0"
-description = "SkillVault - A desktop application for managing your skills and knowledge"
+description = "Skill Vaults - A desktop application for managing your skills and knowledge"
 edition = "2021"
 build = "build.rs"
-authors = ["SkillVault Team <team@skillvault.com>"]
+authors = ["zengym5@asiainfo.com"]
 repository = "https://github.com/skillvault/skillvault"
 license = "MIT"
 readme = "README.md"

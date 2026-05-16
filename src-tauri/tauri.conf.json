@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2.0",
-  "productName": "SkillVault",
+  "productName": "Skill Vaults",
   "version": "0.1.0",
   "identifier": "com.skillvault.app",
   "build": {
@@ -35,11 +35,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "publisher": "SkillVault Team",
-    "copyright": "Copyright © 2025 SkillVault. All rights reserved.",
+    "publisher": "zengym5@asiainfo.com",
+    "copyright": "Copyright © 2026 Skill Vaults. All rights reserved.",
     "category": "Productivity",
     "shortDescription": "Manage your skills and knowledge",
-    "longDescription": "SkillVault is a desktop application that helps you organize, track, and improve your skills and knowledge base.",
+    "longDescription": "Skill Vaults is a desktop application that helps you organize, track, and improve your skills and knowledge base.",
     "macOS": {
       "minimumSystemVersion": "10.15",
       "entitlements": "entitlements.plist",
