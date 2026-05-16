@@ -38,7 +38,7 @@ export default defineConfig({
     env: {
       LLM_API_URL:
         process.env.LLM_API_URL || "https://api.openai.com/v1/chat/completions",
-      LLM_API_KEY: process.env.LLM_API_KEY || "test-api-key",
+      LLM_API_KEY: process.env.LLM_API_KEY || "",
       LLM_MODEL: process.env.LLM_MODEL || "gpt-3.5-turbo",
     },
   },

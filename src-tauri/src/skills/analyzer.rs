@@ -54,8 +54,8 @@ pub async fn analyze_skill(
             &result.description,
             &result.ai_summary,
             &result.usage_instructions,
-            &serde_json::to_string(&result.tags).unwrap(),
-            &serde_json::to_string(&result.dependencies).unwrap(),
+            &serde_json::to_string(&result.tags).map_err(|e| format!("Failed to serialize tags: {}", e))?,
+            &serde_json::to_string(&result.dependencies).map_err(|e| format!("Failed to serialize dependencies: {}", e))?,
             result.quality_score,
         )
         .await

@@ -383,13 +383,12 @@ async fn sync_repository(
                     let local_path = std::path::Path::new(&fresh_repo.local_path);
                     dispatch::copy::copy_dir(source_path, local_path)
                         .map_err(|e| e.to_string())?;
-                } else if fresh_repo.url.is_some() {
+                } else if let Some(url) = fresh_repo.url.as_deref() {
                     let local_path = std::path::Path::new(&fresh_repo.local_path);
+                    let branch = fresh_repo.branch.as_deref().unwrap_or("main");
+                    let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
+                    let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                     if !local_path.exists() {
-                        let url = fresh_repo.url.as_deref().unwrap();
-                        let branch = fresh_repo.branch.as_deref().unwrap_or("main");
-                        let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
-                        let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                         git::clone_repository(url, &fresh_repo.local_path, branch, auth_type, auth_config).await
                             .map_err(|e| e.to_string())?;
                     } else {
@@ -397,10 +396,6 @@ async fn sync_repository(
                         let pull_result = git::sync_repository(&fresh_repo).await;
                         if let Err(_) = pull_result {
                             let _ = std::fs::remove_dir_all(&fresh_repo.local_path);
-                            let url = fresh_repo.url.as_deref().unwrap();
-                            let branch = fresh_repo.branch.as_deref().unwrap_or("main");
-                            let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
-                            let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                             git::clone_repository(url, &fresh_repo.local_path, branch, auth_type, auth_config).await
                                 .map_err(|e| e.to_string())?;
                         }
@@ -458,11 +453,11 @@ async fn sync_all_repositories(
                         _ => return,
                     };
                     let local_path = std::path::Path::new(&fresh_repo.local_path);
+                    let Some(url) = fresh_repo.url.as_deref() else { return; };
+                    let branch = fresh_repo.branch.as_deref().unwrap_or("main");
+                    let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
+                    let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                     let result = if !local_path.exists() {
-                        let url = fresh_repo.url.as_deref().unwrap();
-                        let branch = fresh_repo.branch.as_deref().unwrap_or("main");
-                        let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
-                        let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                         git::clone_repository(url, &fresh_repo.local_path, branch, auth_type, auth_config).await
                     } else {
                         // Try pull; on failure, delete and re-clone
@@ -470,10 +465,6 @@ async fn sync_all_repositories(
                             Ok(()) => Ok(()),
                             Err(_) => {
                                 let _ = std::fs::remove_dir_all(&fresh_repo.local_path);
-                                let url = fresh_repo.url.as_deref().unwrap();
-                                let branch = fresh_repo.branch.as_deref().unwrap_or("main");
-                                let auth_type = fresh_repo.auth_type.as_deref().unwrap_or("none");
-                                let auth_config = fresh_repo.auth_config.as_deref().unwrap_or("{}");
                                 git::clone_repository(url, &fresh_repo.local_path, branch, auth_type, auth_config).await
                             }
                         }

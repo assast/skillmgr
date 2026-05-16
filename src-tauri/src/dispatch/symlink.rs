@@ -185,15 +185,13 @@ pub async fn bulk_dispatch(
     .ok_or_else(|| format!("Target directory with id {} not found", target_dir_id))?;
 
     // Pre-fetch all skills in one query to avoid N+1 database calls
-    let placeholders = std::iter::repeat("?").take(skill_ids.len()).collect::<Vec<_>>().join(",");
-    let query = format!("SELECT * FROM skills WHERE id IN ({})", placeholders);
-
-    let mut query_builder = sqlx::query(&query);
+    let mut qb = sqlx::QueryBuilder::new("SELECT * FROM skills WHERE id IN (");
+    let mut separated = qb.separated(", ");
     for skill_id in &skill_ids {
-        query_builder = query_builder.bind(skill_id);
+        separated.push_bind(skill_id);
     }
-
-    let rows = query_builder.fetch_all(&*pool)
+    separated.push_unseparated(")");
+    let rows = qb.build().fetch_all(&*pool)
         .await
         .map_err(|e| format!("Failed to fetch skills: {}", e))?;
 

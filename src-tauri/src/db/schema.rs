@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS repositories (
     source_type TEXT NOT NULL,
     local_path TEXT NOT NULL,
     auth_type TEXT,
-    auth_config TEXT,
+    auth_config TEXT, -- WARNING: Contains sensitive credentials (tokens/SSH keys). Should be encrypted.
     branch TEXT,
     skills_path TEXT NOT NULL DEFAULT 'skills',
     last_synced_at DATETIME,
