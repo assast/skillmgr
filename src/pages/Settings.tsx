@@ -51,13 +51,14 @@ export function SettingsPage() {
     providers,
     availableModels,
     gitConfig,
-    isLoading,
     loadLLMProviders,
     saveLLMProviders,
     fetchModels,
     loadGitConfig,
     saveGitConfig,
   } = useSettingsStore();
+
+  const [isSaving, setIsSaving] = useState(false);
 
   const { basePath, migrateBaseDirectory } = useConfigStore();
 
@@ -173,12 +174,15 @@ export function SettingsPage() {
   };
 
   const handleSaveProviders = async () => {
+    setIsSaving(true);
     try {
       await saveLLMProviders(editingProviders);
       setHasUnsavedChanges(false);
       toast.success("LLM providers saved successfully");
     } catch (error) {
       toast.error(`Failed to save: ${(error as Error).message}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -201,11 +205,14 @@ export function SettingsPage() {
   // --- Git ---
 
   const handleSaveGit = async () => {
+    setIsSaving(true);
     try {
       await saveGitConfig(gitPath);
       toast.success("Git configuration saved");
     } catch (error) {
       toast.error(`Failed to save: ${(error as Error).message}`);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -478,10 +485,10 @@ export function SettingsPage() {
               <div className="pt-2">
                 <Button
                   onClick={handleSaveProviders}
-                  disabled={isLoading || !hasUnsavedChanges}
+                  disabled={isSaving || !hasUnsavedChanges}
                 >
                   <Save className="mr-2 h-4 w-4" />
-                  {isLoading ? "Saving..." : "Save Providers"}
+                  {isSaving ? "Saving..." : "Save Providers"}
                 </Button>
               </div>
             )}
@@ -532,9 +539,9 @@ export function SettingsPage() {
               </p>
             </div>
 
-            <Button onClick={handleSaveGit} disabled={isLoading}>
+            <Button onClick={handleSaveGit} disabled={isSaving}>
               <Save className="mr-2 h-4 w-4" />
-              {isLoading ? "Saving..." : "Save"}
+              {isSaving ? "Saving..." : "Save"}
             </Button>
           </CardContent>
         </Card>

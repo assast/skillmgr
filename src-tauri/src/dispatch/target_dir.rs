@@ -2,6 +2,7 @@ use sqlx::{FromRow, SqlitePool};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, FromRow, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TargetDir {
     pub id: String,
     pub name: String,
@@ -13,6 +14,7 @@ pub struct TargetDir {
 }
 
 #[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateTargetDir {
     pub name: String,
     pub path: String,
@@ -64,6 +66,21 @@ impl TargetDir {
     }
 }
 
+/// Validate target directory path to prevent path traversal
+fn validate_target_path(path: &str) -> Result<(), String> {
+    if path.contains("..") {
+        return Err("Path cannot contain '..' components".to_string());
+    }
+    let canonical = std::path::Path::new(path)
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {}", e))?;
+    let canonical_str = canonical.to_string_lossy();
+    if canonical_str.contains("..") {
+        return Err("Resolved path contains traversal components".to_string());
+    }
+    Ok(())
+}
+
 // Tauri commands
 #[tauri::command]
 pub async fn add_target_dir(
@@ -73,6 +90,8 @@ pub async fn add_target_dir(
     description: Option<&str>,
     pool: tauri::State<'_, SqlitePool>,
 ) -> Result<TargetDir, String> {
+    validate_target_path(path)?;
+
     let create = CreateTargetDir {
         name: name.to_string(),
         path: path.to_string(),

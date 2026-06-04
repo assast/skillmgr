@@ -3,14 +3,22 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 import { Repository, CreateRepositoryRequest } from "../types/repository";
 
-interface RepositoryState {
+interface RepositoryStore {
   repositories: Repository[];
   loading: boolean;
   error: string | null;
   skillCounts: Record<string, number>;
-  getRepositories: () => Promise<void>;
-  getRepository: (id: string) => Promise<Repository | null>;
+  fetchRepositories: () => Promise<void>;
+  fetchRepository: (id: string) => Promise<Repository | null>;
   addRepository: (data: CreateRepositoryRequest) => Promise<Repository>;
+  updateRepository: (id: string, data: {
+    name: string;
+    skillsPath: string;
+    url?: string;
+    branch?: string;
+    authType?: string;
+    authConfig?: string;
+  }) => Promise<void>;
   deleteRepository: (id: string) => Promise<void>;
   syncRepository: (id: string) => Promise<Repository>;
   syncAllRepositories: () => Promise<Repository[]>;
@@ -18,13 +26,13 @@ interface RepositoryState {
   clearError: () => void;
 }
 
-export const useRepositoryStore = create<RepositoryState>((set) => ({
+export const useRepositoryStore = create<RepositoryStore>((set, get) => ({
   repositories: [],
   loading: false,
   error: null,
   skillCounts: {},
 
-  getRepositories: async () => {
+  fetchRepositories: async () => {
     set({ loading: true, error: null });
     try {
       const repositories = await invoke<Repository[]>("list_repositories");
@@ -37,7 +45,7 @@ export const useRepositoryStore = create<RepositoryState>((set) => ({
     }
   },
 
-  getRepository: async (id: string) => {
+  fetchRepository: async (id: string) => {
     set({ loading: true, error: null });
     try {
       const repository = await invoke<Repository | null>("get_repository", {
@@ -64,6 +72,33 @@ export const useRepositoryStore = create<RepositoryState>((set) => ({
         loading: false,
       }));
       return repository;
+    } catch (error) {
+      set({ error: (error as Error).message, loading: false });
+      throw error;
+    }
+  },
+
+  updateRepository: async (id: string, data: {
+    name: string;
+    skillsPath: string;
+    url?: string;
+    branch?: string;
+    authType?: string;
+    authConfig?: string;
+  }) => {
+    set({ loading: true, error: null });
+    try {
+      await invoke("update_repository", {
+        id,
+        name: data.name,
+        skillsPath: data.skillsPath,
+        url: data.url,
+        branch: data.branch,
+        authType: data.authType,
+        authConfig: data.authConfig,
+      });
+      await get().fetchRepositories();
+      set({ loading: false });
     } catch (error) {
       set({ error: (error as Error).message, loading: false });
       throw error;

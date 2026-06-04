@@ -41,6 +41,7 @@ export function DispatchPage() {
     deleteDispatch,
     deleteTargetDir,
     deleteTemplate,
+    scanTargetDir,
   } = useDispatchStore();
   const { skills, fetchSkills } = useSkillStore();
 
@@ -70,6 +71,12 @@ export function DispatchPage() {
     fetchDispatches().catch(() => toast.error("Failed to load dispatches"));
     fetchTemplates().catch(() => toast.error("Failed to load templates"));
   }, [fetchTargetDirs, fetchSkills, fetchDispatches, fetchTemplates]);
+
+  useEffect(() => {
+    if (selectedDirId) {
+      scanTargetDir(selectedDirId);
+    }
+  }, [selectedDirId, scanTargetDir]);
 
   const selectedDir = targetDirs.find((d) => d.id === selectedDirId) ?? null;
   const skillMap = useMemo(() => {

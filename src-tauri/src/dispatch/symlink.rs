@@ -7,7 +7,7 @@ use tauri::State;
 use crate::db::dispatch::{Dispatch, DispatchMethod, SyncStatus};
 use crate::db::skill::Skill;
 use super::target_dir::TargetDir;
-use super::copy::copy_dir;
+use super::copy::{copy_dir, hardlink_dir};
 
 /// Dispatch a skill to target directory using specified method
 #[tauri::command]
@@ -17,13 +17,11 @@ pub async fn dispatch_skill(
     dispatch_method: DispatchMethod,
     pool: State<'_, SqlitePool>,
 ) -> Result<Dispatch, String> {
-    // Get skill by ID
     let skill = Skill::get_by_id(&pool, skill_id)
         .await
         .map_err(|e| format!("Failed to get skill: {}", e))?
         .ok_or_else(|| format!("Skill with id {} not found", skill_id))?;
 
-    // Get target directory by ID
     let target_dir = sqlx::query_as::<_, TargetDir>(
         "SELECT * FROM target_dirs WHERE id = ?"
     )
@@ -33,77 +31,7 @@ pub async fn dispatch_skill(
     .map_err(|e| format!("Failed to get target directory: {}", e))?
     .ok_or_else(|| format!("Target directory with id {} not found", target_dir_id))?;
 
-    // Build source and destination paths
-    let source_path = PathBuf::from(&skill.local_path);
-    let dest_base = if target_dir.skills_subdir.is_empty() {
-        PathBuf::from(&target_dir.path)
-    } else {
-        PathBuf::from(&target_dir.path).join(&target_dir.skills_subdir)
-    };
-    if !dest_base.exists() {
-        std::fs::create_dir_all(&dest_base)
-            .map_err(|e| format!("Failed to create destination directory {}: {}", dest_base.display(), e))?;
-    }
-    let dest_path = dest_base.join(&skill.name);
-
-    // Check if source path exists
-    if !source_path.exists() {
-        return Err(format!("Skill source path does not exist: {}", source_path.display()));
-    }
-
-    // Check if destination path already exists
-    if dest_path.exists() {
-        return Err(format!("Destination path already exists: {}", dest_path.display()));
-    }
-
-    // Create parent directories if they don't exist
-    if let Some(parent) = dest_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("Failed to create parent directories: {}", e))?;
-    }
-
-    // Perform dispatch based on method
-    match dispatch_method {
-        DispatchMethod::Symlink => {
-            // Create symbolic link
-            #[cfg(unix)]
-            {
-                std::os::unix::fs::symlink(&source_path, &dest_path)
-                    .map_err(|e| format!("Failed to create symbolic link: {}", e))?;
-            }
-
-            #[cfg(windows)]
-            {
-                std::os::windows::fs::symlink_dir(&source_path, &dest_path)
-                    .map_err(|e| format!("Failed to create symbolic link: {}", e))?;
-            }
-        }
-        DispatchMethod::Copy => {
-            // Recursively copy directory
-            copy_dir(&source_path, &dest_path)?;
-        }
-        DispatchMethod::Hardlink => {
-            return Err("Hardlink dispatch method is not supported yet".to_string());
-        }
-    }
-
-    // Create dispatch record
-    let now = chrono::Utc::now();
-    let dispatch = Dispatch::create(
-        &pool,
-        target_dir.id.clone(),
-        skill.id.clone(),
-        dispatch_method,
-        source_path.to_string_lossy().to_string(),
-        dest_path.to_string_lossy().to_string(),
-        SyncStatus::Synced,
-        None,
-        Some(now),
-    )
-    .await
-    .map_err(|e| format!("Failed to create dispatch record: {}", e))?;
-
-    Ok(dispatch)
+    process_single_dispatch_with_skill(&skill, &target_dir, dispatch_method, &pool).await
 }
 
 /// List all dispatch rules
@@ -139,10 +67,13 @@ pub async fn delete_dispatch(
                 std::fs::remove_dir_all(&dest_path)
                     .map_err(|e| format!("Failed to remove copied files: {}", e))?;
             }
-            DispatchMethod::Hardlink => {
-                return Err("Hardlink dispatch method is not supported yet".to_string());
-            }
+        DispatchMethod::Hardlink => {
+            // Remove hardlink: try file first, then directory
+            std::fs::remove_file(&dest_path)
+                .or_else(|_| std::fs::remove_dir_all(&dest_path))
+                .map_err(|e| format!("Failed to remove hardlink: {}", e))?;
         }
+    }
     }
 
     Dispatch::delete(&pool, dispatch_id)
@@ -245,9 +176,11 @@ async fn process_single_dispatch_with_skill(
         return Err(format!("Skill source path does not exist: {}", source_path.display()));
     }
 
-    // Check if destination path already exists
+    // Remove existing destination if present (re-dispatch scenario)
     if dest_path.exists() {
-        return Err(format!("Destination path already exists: {}", dest_path.display()));
+        std::fs::remove_file(&dest_path)
+            .or_else(|_| std::fs::remove_dir_all(&dest_path))
+            .map_err(|e| format!("Failed to remove existing destination {}: {}", dest_path.display(), e))?;
     }
 
     // Create parent directories if they don't exist
@@ -277,7 +210,13 @@ async fn process_single_dispatch_with_skill(
             copy_dir(&source_path, &dest_path)?;
         }
         DispatchMethod::Hardlink => {
-            return Err("Hardlink dispatch method is not supported yet".to_string());
+            if source_path.is_file() {
+                std::fs::hard_link(&source_path, &dest_path)
+                    .map_err(|e| format!("Failed to create hard link: {}", e))?;
+            } else {
+                hardlink_dir(&source_path, &dest_path)
+                    .map_err(|e| format!("Failed to create hard link directory: {}", e))?;
+            }
         }
     }
 
@@ -298,5 +237,95 @@ async fn process_single_dispatch_with_skill(
     .map_err(|e| format!("Failed to create dispatch record: {}", e))?;
 
     Ok(dispatch)
+}
+
+/// Scan a target directory's skills subfolder and create dispatch records
+/// for any skill folders found on disk but missing from the database
+#[tauri::command]
+#[allow(dead_code)]
+pub async fn scan_target_dir(
+    target_dir_id: &str,
+    pool: State<'_, SqlitePool>,
+) -> Result<Vec<Dispatch>, String> {
+    let target_dir = sqlx::query_as::<_, TargetDir>(
+        "SELECT * FROM target_dirs WHERE id = ?"
+    )
+    .bind(target_dir_id)
+    .fetch_optional(&*pool)
+    .await
+    .map_err(|e| format!("Failed to get target directory: {}", e))?
+    .ok_or_else(|| format!("Target directory with id {} not found", target_dir_id))?;
+
+    let dest_base = if target_dir.skills_subdir.is_empty() {
+        PathBuf::from(&target_dir.path)
+    } else {
+        PathBuf::from(&target_dir.path).join(&target_dir.skills_subdir)
+    };
+
+    if !dest_base.exists() {
+        return Ok(Vec::new());
+    }
+
+    let existing_dispatches = Dispatch::get_by_target_dir(&pool, target_dir_id)
+        .await
+        .map_err(|e| format!("Failed to get existing dispatches: {}", e))?;
+    let existing_skill_ids: std::collections::HashSet<_> =
+        existing_dispatches.iter().map(|d| d.skill_id.clone()).collect();
+
+    let all_skills = sqlx::query("SELECT * FROM skills")
+        .fetch_all(&*pool)
+        .await
+        .map_err(|e| format!("Failed to fetch skills: {}", e))?;
+    let skill_map: std::collections::HashMap<String, crate::db::skill::Skill> = all_skills
+        .iter()
+        .filter_map(|r| crate::db::skill::map_row_to_skill(r).ok())
+        .map(|s| (s.name.clone(), s))
+        .collect();
+
+    let mut created = Vec::new();
+    for entry in std::fs::read_dir(&dest_base)
+        .map_err(|e| format!("Failed to read directory: {}", e))?
+    {
+        let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
+        if !entry.file_type().map_err(|e| e.to_string())?.is_dir() {
+            continue;
+        }
+        let folder_name = entry.file_name().to_string_lossy().to_string();
+        let Some(skill) = skill_map.get(&folder_name) else {
+            continue;
+        };
+        if existing_skill_ids.contains(&skill.id) {
+            continue;
+        }
+        let dest_path = dest_base.join(&folder_name);
+        let source_path = PathBuf::from(&skill.local_path);
+        if !source_path.exists() {
+            continue;
+        }
+        let method = if dest_path.is_symlink() {
+            DispatchMethod::Symlink
+        } else {
+            DispatchMethod::Copy
+        };
+        let now = chrono::Utc::now();
+        match Dispatch::create(
+            &pool,
+            target_dir_id.to_string(),
+            skill.id.clone(),
+            method,
+            source_path.to_string_lossy().to_string(),
+            dest_path.to_string_lossy().to_string(),
+            SyncStatus::Synced,
+            None,
+            Some(now),
+        )
+        .await
+        {
+            Ok(dispatch) => created.push(dispatch),
+            Err(_) => continue,
+        }
+    }
+
+    Ok(created)
 }
 

@@ -3,28 +3,28 @@ export interface Repository {
   name: string;
   url?: string;
   path: string;
-  source_type: string;
-  local_path: string;
-  auth_type?: string;
-  auth_config?: string;
+  sourceType: string;
+  localPath: string;
+  authType?: string;
+  authConfig?: string;
   branch?: string;
-  skills_path: string;
-  last_synced_at?: string;
-  last_checked_at?: string;
+  skillsPath: string;
+  lastSyncedAt?: string;
+  lastCheckedAt?: string;
   status: "pending" | "syncing" | "synced" | "error";
-  error_message?: string;
-  created_at: string;
-  updated_at: string;
+  errorMessage?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CreateRepositoryRequest {
   name: string;
   url?: string;
   path: string;
-  source_type: string;
-  local_path: string;
-  auth_type?: string;
-  auth_config?: string;
+  sourceType: string;
+  localPath: string;
+  authType?: string;
+  authConfig?: string;
   branch?: string;
-  skills_path?: string;
+  skillsPath?: string;
 }

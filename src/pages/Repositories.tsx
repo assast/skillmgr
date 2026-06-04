@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import { useRepositoryStore } from "@/store/repositoryStore";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,7 +106,7 @@ function RepoRow({
   onDelete,
 }: RepoRowProps) {
   const status = getStatusStyle(repo.status);
-  const isRemote = repo.source_type !== "local";
+  const isRemote = repo.sourceType !== "local";
   const isSyncing = syncingId === repo.id || repo.status === "syncing";
 
   const subtitleParts: string[] = [];
@@ -124,8 +123,8 @@ function RepoRow({
   } else {
     subtitleParts.push(repo.path);
   }
-  if (repo.status === "synced" && repo.last_synced_at) {
-    subtitleParts.push(getRelativeTime(repo.last_synced_at));
+  if (repo.status === "synced" && repo.lastSyncedAt) {
+    subtitleParts.push(getRelativeTime(repo.lastSyncedAt));
   }
 
   return (
@@ -154,13 +153,13 @@ function RepoRow({
           </div>
           <p
             className={`text-xs mt-0.5 truncate ${
-              repo.status === "error" && repo.error_message
+              repo.status === "error" && repo.errorMessage
                 ? "text-red-500"
                 : "text-muted-foreground"
             }`}
           >
-            {repo.status === "error" && repo.error_message
-              ? repo.error_message
+            {repo.status === "error" && repo.errorMessage
+              ? repo.errorMessage
               : subtitleParts.join(" · ")}
           </p>
         </div>
@@ -217,40 +216,51 @@ function EditRepoForm({
   repo,
   onSave,
   onCancel,
+  onUpdate,
+  onSync,
 }: {
   repo: Repository;
   onSave: () => void;
   onCancel: () => void;
+  onUpdate: (id: string, data: {
+    name: string;
+    skillsPath: string;
+    url?: string;
+    branch?: string;
+    authType?: string;
+    authConfig?: string;
+  }) => Promise<void>;
+  onSync: (id: string) => Promise<unknown>;
 }) {
-  const isRemote = repo.source_type !== "local";
+  const isRemote = repo.sourceType !== "local";
   const [name, setName] = useState(repo.name);
-  const [skillsPath, setSkillsPath] = useState(repo.skills_path);
+  const [skillsPath, setSkillsPath] = useState(repo.skillsPath);
   const [url, setUrl] = useState(repo.url ?? "");
   const [branch, setBranch] = useState(repo.branch ?? "");
-  const [authType, setAuthType] = useState<string>(repo.auth_type ?? "none");
+  const [authType, setAuthType] = useState<string>(repo.authType ?? "none");
   const [token, setToken] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [sshKey, setSshKey] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Parse existing auth_config to pre-fill auth fields
+  // Parse existing authConfig to pre-fill auth fields
   useEffect(() => {
-    if (!repo.auth_config) return;
+    if (!repo.authConfig) return;
     try {
-      const config = JSON.parse(repo.auth_config);
-      if (repo.auth_type === "token" && config.token) {
+      const config = JSON.parse(repo.authConfig);
+      if (repo.authType === "token" && config.token) {
         setToken(config.token);
-      } else if (repo.auth_type === "ssh" && config.private_key) {
+      } else if (repo.authType === "ssh" && config.private_key) {
         setSshKey(config.private_key);
-      } else if (repo.auth_type === "http") {
+      } else if (repo.authType === "http") {
         if (config.username) setUsername(config.username);
         if (config.password) setPassword(config.password);
       }
     } catch {
       // ignore parse errors
     }
-  }, [repo.auth_config, repo.auth_type]);
+  }, [repo.authConfig, repo.authType]);
 
   const handleSave = async () => {
     if (!name.trim()) {
@@ -259,7 +269,7 @@ function EditRepoForm({
     }
     setSaving(true);
     try {
-      // Build auth_config based on auth type
+      // Build authConfig based on auth type
       let authConfigValue: string | undefined;
       if (authType === "token" && token.trim()) {
         authConfigValue = JSON.stringify({ token: token.trim() });
@@ -275,10 +285,9 @@ function EditRepoForm({
       const urlChanged =
         isRemote && url.trim() && url.trim() !== (repo.url ?? "");
       const branchChanged = isRemote && branch.trim() !== (repo.branch ?? "");
-      const authChanged = isRemote && authType !== (repo.auth_type ?? "none");
+      const authChanged = isRemote && authType !== (repo.authType ?? "none");
 
-      await invoke("update_repository", {
-        id: repo.id,
+      await onUpdate(repo.id, {
         name: name.trim(),
         skillsPath: skillsPath.trim() || "skills",
         url: isRemote && url.trim() ? url.trim() : undefined,
@@ -287,12 +296,10 @@ function EditRepoForm({
         authConfig: isRemote ? authConfigValue : undefined,
       });
 
-      // If URL, branch, or auth changed, trigger a re-sync (which will re-clone if needed)
       if (urlChanged || branchChanged || authChanged) {
         try {
-          await invoke("sync_repository", { id: repo.id });
+          await onSync(repo.id);
         } catch {
-          // sync may fail, that's OK — status will be updated in DB
         }
       }
 
@@ -449,11 +456,12 @@ export function Repositories() {
     repositories,
     skillCounts,
     loading,
-    getRepositories,
+    fetchRepositories,
     getSkillCounts,
     syncRepository,
     syncAllRepositories,
     deleteRepository,
+    updateRepository,
   } = useRepositoryStore();
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -463,8 +471,8 @@ export function Repositories() {
   const [deleteTarget, setDeleteTarget] = useState<Repository | null>(null);
 
   const loadData = useCallback(async () => {
-    await Promise.all([getRepositories(), getSkillCounts()]);
-  }, [getRepositories, getSkillCounts]);
+    await Promise.all([fetchRepositories(), getSkillCounts()]);
+  }, [fetchRepositories, getSkillCounts]);
 
   useEffect(() => {
     loadData();
@@ -484,7 +492,7 @@ export function Repositories() {
         toast.success(`Repository "${repo.name}" synced successfully`);
       } else if (prev === "syncing" && repo.status === "error") {
         toast.error(
-          `Sync failed for "${repo.name}": ${repo.error_message ?? "Unknown error"}`,
+          `Sync failed for "${repo.name}": ${repo.errorMessage ?? "Unknown error"}`,
         );
       }
     }
@@ -507,12 +515,12 @@ export function Repositories() {
         toast.error(
           `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
         );
-        await getRepositories();
+        await fetchRepositories();
       } finally {
         setSyncingId(null);
       }
     },
-    [syncRepository, loadData, getRepositories],
+    [syncRepository, loadData, fetchRepositories],
   );
 
   const handleSyncAll = useCallback(async () => {
@@ -643,6 +651,8 @@ export function Repositories() {
                 await loadData();
               }}
               onCancel={() => setEditingRepo(null)}
+              onUpdate={updateRepository}
+              onSync={syncRepository}
             />
           )}
         </DialogContent>

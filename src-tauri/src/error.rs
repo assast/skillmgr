@@ -2,6 +2,7 @@ use std::fmt;
 
 /// User-facing application errors that are safe to return to the frontend.
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum AppError {
     NotFound(String),
     Validation(String),
@@ -26,6 +27,7 @@ impl fmt::Display for AppError {
     }
 }
 
+#[allow(dead_code)]
 impl AppError {
     /// Convert any error into a user-safe AppError, logging the internal details.
     pub fn from_internal<E: std::error::Error>(context: &str, e: E) -> Self {

@@ -113,6 +113,7 @@ pub async fn create_skill(pool: &sqlx::SqlitePool, create: CreateSkill) -> Resul
 }
 
 /// Bulk create multiple skills (optimized for batch operations)
+#[allow(dead_code)]
 pub async fn bulk_create_skills(
     pool: &sqlx::SqlitePool,
     creates: Vec<CreateSkill>,

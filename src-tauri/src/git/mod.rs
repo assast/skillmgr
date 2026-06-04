@@ -9,8 +9,26 @@ use crate::db::repository::Repository;
 use anyhow::{anyhow, Result};
 use std::process::Command;
 
+/// Validate git URL to prevent path traversal and dangerous protocols
+fn validate_git_url(url: &str) -> Result<()> {
+    let allowed_schemes = ["https://", "ssh://", "git://"];
+    if !allowed_schemes.iter().any(|s| url.starts_with(s)) {
+        return Err(anyhow!(
+            "Invalid git URL scheme. Only https://, ssh://, git:// are allowed. Got: {}",
+            url
+        ));
+    }
+    // Reject URLs containing path traversal attempts
+    if url.contains("..") {
+        return Err(anyhow!("Git URL contains invalid path traversal '..'"));
+    }
+    Ok(())
+}
+
 /// Shell out to system git for clone — uses native SSH agent, ~/.ssh/config, etc.
 pub async fn clone_via_cli(url: &str, path: &str, branch: &str) -> Result<()> {
+    validate_git_url(url)?;
+
     let path = std::path::Path::new(path);
     if path.exists() {
         return Err(anyhow!("Directory already exists: {}", path.display()));
@@ -30,6 +48,7 @@ pub async fn clone_via_cli(url: &str, path: &str, branch: &str) -> Result<()> {
 }
 
 /// Shell out to system git for pull — uses native SSH agent, ~/.ssh/config, etc.
+/// Note: URL validation is done at clone time; pull uses the already-validated local path.
 pub async fn pull_via_cli(path: &str, branch: &str) -> Result<()> {
     let path = std::path::Path::new(path);
     if !path.exists() {

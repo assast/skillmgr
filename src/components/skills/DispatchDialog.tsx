@@ -71,7 +71,7 @@ export function DispatchDialog({
       await invoke("dispatch_skill", {
         skillId: skill.id,
         targetDirId: selectedTargetDirId,
-        method: selectedMethod,
+         dispatchMethod: selectedMethod,
       });
       toast.success(`Skill "${skill.name}" dispatched successfully`);
       onOpenChange(false);

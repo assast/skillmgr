@@ -57,6 +57,8 @@ interface DispatchStore {
     method: DispatchMethod,
   ) => Promise<BulkDispatchResult>;
 
+  scanTargetDir: (targetDirId: string) => Promise<void>;
+
   clearError: () => void;
 }
 
@@ -202,7 +204,7 @@ export const useDispatchStore = create<DispatchStore>((set, get) => ({
       const result = await invoke<BulkDispatchResult>("bulk_dispatch", {
         skillIds,
         targetDirId,
-        dispatchMethod: method,
+         dispatchMethod: method,
       });
       // Refresh dispatches list to include new ones
       await get().fetchDispatches();
@@ -330,6 +332,19 @@ export const useDispatchStore = create<DispatchStore>((set, get) => ({
         loading: false,
       });
       throw error;
+    }
+  },
+
+  scanTargetDir: async (targetDirId: string) => {
+    try {
+      const created = await invoke<Dispatch[]>("scan_target_dir", {
+        targetDirId,
+      });
+      if (created.length > 0) {
+        await get().fetchDispatches();
+      }
+    } catch {
+      // Silently ignore scan errors — best-effort feature
     }
   },
 

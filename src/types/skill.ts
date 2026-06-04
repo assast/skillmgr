@@ -13,9 +13,9 @@ export interface Skill {
   llmAnalyzed: boolean;
   qualityScore?: number;
   status: "active" | "archived" | "broken";
-  firstDiscoveredAt: Date;
-  createdAt: Date;
-  updatedAt: Date;
+  firstDiscoveredAt: string;
+  createdAt: string;
+  updatedAt: string;
   dispatchCount: number;
   repositoryName?: string;
 }

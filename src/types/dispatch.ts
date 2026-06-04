@@ -1,6 +1,7 @@
 export enum DispatchMethod {
   Symlink = "symlink",
   Copy = "copy",
+  Hardlink = "hardlink",
 }
 
 export function parseDispatchMethod(value: string): DispatchMethod {

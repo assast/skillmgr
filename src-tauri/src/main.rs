@@ -2,6 +2,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::Manager;
+use sqlx::SqlitePool;
 
 mod db;
 mod config;
@@ -175,7 +176,17 @@ async fn add_repository(
         let auth_config_owned = auth_config.unwrap_or("{}").to_string();
         let lp_owned = local_path_str.to_string();
         tauri::async_runtime::spawn(async move {
-            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
+            let _permit = match BG_SEMAPHORE.acquire().await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("Failed to acquire bg semaphore: {}", e);
+                    let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                        .bind(format!("Semaphore error: {}", e))
+                        .bind(&repo_id)
+                        .execute(&pool_clone).await;
+                    return;
+                }
+            };
             let result = git::clone_repository(
                 &url_owned, &lp_owned, &branch_owned, &auth_type_owned, &auth_config_owned,
             ).await;
@@ -233,7 +244,17 @@ async fn add_repository(
         let src_owned = path.to_string();
         let should_copy = copy.unwrap_or(false);
         tauri::async_runtime::spawn(async move {
-            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
+            let _permit = match BG_SEMAPHORE.acquire().await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("Failed to acquire bg semaphore: {}", e);
+                    let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                        .bind(format!("Semaphore error: {}", e))
+                        .bind(&repo_id)
+                        .execute(&pool_clone).await;
+                    return;
+                }
+            };
             let result = if should_copy {
                 dispatch::copy::copy_dir(Path::new(&src_owned), Path::new(&lp_owned))
             } else {
@@ -300,12 +321,40 @@ async fn get_repository(
 #[tauri::command]
 async fn delete_repository(
     id: &str,
-    pool: tauri::State<'_, sqlx::SqlitePool>,
+    pool: tauri::State<'_, SqlitePool>,
 ) -> Result<(), String> {
     let repo = db::repository::Repository::get_by_id(&pool, id)
         .await.map_err(|e| error::sanitize_error("get repository", e))?;
     if let Some(repo) = repo {
+        // Clean up dispatched files/symlinks for this repository's skills
+        if let Ok(skill_rows) = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM skills WHERE repository_id = ?1"
+        ).bind(id).fetch_all(pool.inner()).await {
+            for skill_id in &skill_rows {
+                // Remove dispatched files for this skill
+                let _ = sqlx::query_scalar::<_, String>(
+                    "SELECT dest_path FROM dispatch WHERE skill_id = ?1"
+                ).bind(skill_id).fetch_all(pool.inner()).await
+                .map(|paths: Vec<String>| {
+                    for p in paths {
+                        let _ = std::fs::remove_file(&p).or_else(|_| std::fs::remove_dir_all(&p));
+                    }
+                });
+            }
+        }
+        // Delete dispatch records for this repository's skills
+        let _ = sqlx::query("DELETE FROM dispatch WHERE skill_id IN (SELECT id FROM skills WHERE repository_id = ?1)")
+            .bind(id).execute(pool.inner()).await;
+        // Delete skills
+        let _ = sqlx::query("DELETE FROM skills WHERE repository_id = ?1")
+            .bind(id).execute(pool.inner()).await;
+        // Delete repository record
         repo.delete(&pool).await.map_err(|e| error::sanitize_error("delete repository", e))?;
+        // Clean up local clone directory
+        let local_path = std::path::Path::new(&repo.local_path);
+        if local_path.exists() {
+            let _ = std::fs::remove_dir_all(local_path);
+        }
     }
     Ok(())
 }
@@ -319,41 +368,35 @@ async fn update_repository(
     branch: Option<&str>,
     auth_type: Option<&str>,
     auth_config: Option<&str>,
-    pool: tauri::State<'_, sqlx::SqlitePool>,
+    pool: tauri::State<'_, SqlitePool>,
 ) -> Result<db::repository::Repository, String> {
-    db::repository::Repository::get_by_id(&pool, id)
+    let repo = db::repository::Repository::get_by_id(&pool, id)
         .await.map_err(|e| error::sanitize_error("get repository", e))?
         .ok_or_else(|| "Repository not found".to_string())?;
 
-    if let Some(name) = name {
-        sqlx::query("UPDATE repositories SET name = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(name).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository name", e))?;
-    }
-    if let Some(sp) = skills_path {
-        sqlx::query("UPDATE repositories SET skills_path = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(sp).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository skills path", e))?;
-    }
-    if let Some(u) = url {
-        sqlx::query("UPDATE repositories SET url = ?1, path = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(u).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository URL", e))?;
-    }
-    if let Some(b) = branch {
-        sqlx::query("UPDATE repositories SET branch = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(b).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository branch", e))?;
-    }
-    if let Some(at) = auth_type {
-        sqlx::query("UPDATE repositories SET auth_type = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(at).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository auth type", e))?;
-    }
-    if let Some(ac) = auth_config {
-        sqlx::query("UPDATE repositories SET auth_config = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
-            .bind(ac).bind(id)
-            .execute(pool.inner()).await.map_err(|e| error::sanitize_error("update repository auth config", e))?;
+    // Update core fields via Repository::update (single query with COALESCE)
+    repo.update(
+        &pool, name, url, None, None, None, None, None,
+    ).await.map_err(|e| error::sanitize_error("update repository", e))?;
+
+    // Update extended fields in a single query
+    if skills_path.is_some() || branch.is_some() || auth_type.is_some() || auth_config.is_some() {
+        sqlx::query(
+            "UPDATE repositories SET updated_at = CURRENT_TIMESTAMP,
+                skills_path = COALESCE(?2, skills_path),
+                branch = COALESCE(?3, branch),
+                auth_type = COALESCE(?4, auth_type),
+                auth_config = COALESCE(?5, auth_config)
+             WHERE id = ?1"
+        )
+        .bind(id)
+        .bind(skills_path)
+        .bind(branch)
+        .bind(auth_type)
+        .bind(auth_config)
+        .execute(pool.inner())
+        .await
+        .map_err(|e| error::sanitize_error("update repository extended fields", e))?;
     }
 
     let updated = db::repository::Repository::get_by_id(&pool, id)
@@ -380,7 +423,17 @@ async fn sync_repository(
     tauri::async_runtime::spawn_blocking(move || {
         let rt = tokio::runtime::Handle::current();
         rt.block_on(async {
-            let _permit = BG_SEMAPHORE.acquire().await.unwrap();
+            let _permit = match BG_SEMAPHORE.acquire().await {
+                Ok(p) => p,
+                Err(e) => {
+                    tracing::error!("Failed to acquire bg semaphore: {}", e);
+                    let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                        .bind(format!("Semaphore error: {}", e))
+                        .bind(&repo_id)
+                        .execute(&pool_clone).await;
+                    return;
+                }
+            };
             let result = async {
                 let fresh_repo = db::repository::Repository::get_by_id(&pool_clone, &repo_id)
                     .await.map_err(|e| e.to_string())?
@@ -456,7 +509,17 @@ async fn sync_all_repositories(
             tauri::async_runtime::spawn_blocking(move || {
                 let rt = tokio::runtime::Handle::current();
                 rt.block_on(async {
-                    let _permit = BG_SEMAPHORE.acquire().await.unwrap();
+                    let _permit = match BG_SEMAPHORE.acquire().await {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::error!("Failed to acquire bg semaphore: {}", e);
+                            let _ = sqlx::query("UPDATE repositories SET status = 'error', error_message = ?1, updated_at = CURRENT_TIMESTAMP WHERE id = ?2")
+                                .bind(format!("Semaphore error: {}", e))
+                                .bind(&repo_id)
+                                .execute(&pool_clone).await;
+                            return;
+                        }
+                    };
                     let fresh_repo = match db::repository::Repository::get_by_id(&pool_clone, &repo_id).await {
                         Ok(Some(r)) => r,
                         _ => return,

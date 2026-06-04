@@ -36,6 +36,7 @@ impl std::str::FromStr for DispatchMethod {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum SyncStatus {
     Synced,
     Outdated,

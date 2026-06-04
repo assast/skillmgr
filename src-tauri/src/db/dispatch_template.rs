@@ -13,6 +13,7 @@ pub struct DispatchTemplate {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateDispatchTemplateInput {
     pub name: String,
     pub description: Option<String>,
@@ -20,6 +21,7 @@ pub struct CreateDispatchTemplateInput {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateDispatchTemplateInput {
     pub name: Option<String>,
     pub description: Option<String>,
@@ -27,15 +29,15 @@ pub struct UpdateDispatchTemplateInput {
 }
 
 /// Map a database row to a DispatchTemplate struct
-fn map_row_to_template(row: &sqlx::sqlite::SqliteRow) -> DispatchTemplate {
-    DispatchTemplate {
-        id: row.get("id"),
-        name: row.get("name"),
-        description: row.get("description"),
-        skill_ids: row.get("skill_ids"),
-        created_at: row.get("created_at"),
-        updated_at: row.get("updated_at"),
-    }
+fn map_row_to_template(row: &sqlx::sqlite::SqliteRow) -> Result<DispatchTemplate, sqlx::Error> {
+    Ok(DispatchTemplate {
+        id: row.try_get("id")?,
+        name: row.try_get("name")?,
+        description: row.try_get("description")?,
+        skill_ids: row.try_get("skill_ids")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
 }
 
 impl DispatchTemplate {
@@ -71,7 +73,7 @@ impl DispatchTemplate {
             .fetch_one(pool)
             .await?;
 
-        Ok(map_row_to_template(&row))
+        map_row_to_template(&row)
     }
 
     /// Get all dispatch templates
@@ -80,7 +82,7 @@ impl DispatchTemplate {
             .fetch_all(pool)
             .await?;
 
-        Ok(rows.iter().map(map_row_to_template).collect())
+        rows.iter().map(map_row_to_template).collect::<Result<Vec<_>, _>>()
     }
 
     /// Get a dispatch template by ID
@@ -93,7 +95,7 @@ impl DispatchTemplate {
             .fetch_optional(pool)
             .await?;
 
-        Ok(row.as_ref().map(map_row_to_template))
+        row.as_ref().map(map_row_to_template).transpose()
     }
 
     /// Update a dispatch template

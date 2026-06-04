@@ -307,7 +307,7 @@ describe("dispatchStore", () => {
       expect(invoke).toHaveBeenNthCalledWith(1, "bulk_dispatch", {
         skillIds,
         targetDirId,
-        dispatchMethod: method,
+         dispatchMethod: method,
       });
       expect(invoke).toHaveBeenNthCalledWith(2, "list_dispatches");
       expect(result).toEqual(mockResult);

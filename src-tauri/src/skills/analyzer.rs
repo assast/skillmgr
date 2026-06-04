@@ -40,7 +40,7 @@ pub async fn analyze_skill(
         .ok_or_else(|| "No LLM provider configured. Please add a provider in Settings.".to_string())?;
 
     let llm_config = LLMConfig::from(&provider);
-    let client = OpenAIClient::new(&llm_config);
+    let client = OpenAIClient::new(&llm_config).map_err(|e| format!("Failed to create LLM client: {}", e))?;
 
     let result = client
         .analyze_skill(&content, &llm_config.model)

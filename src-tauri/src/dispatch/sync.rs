@@ -6,7 +6,7 @@ use tauri::State;
 use chrono::Utc;
 
 use crate::db::dispatch::{Dispatch, DispatchMethod, SyncStatus};
-use super::copy::copy_dir;
+use super::copy::{copy_dir, hardlink_dir};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SyncTargetDirResult {
@@ -50,6 +50,14 @@ pub async fn sync_target_dir_dispatches(
             // Already synced or un-syncable, just include as-is
             match status {
                 Ok(SyncStatus::Synced) => result.synced.push(dispatch),
+                Ok(SyncStatus::Conflict) => result.failed.push((
+                    skill_name,
+                    "Conflict: target files were modified manually. Re-dispatch required.".to_string(),
+                )),
+                Ok(SyncStatus::Error) => result.failed.push((
+                    skill_name,
+                    "Error: source files missing or corrupted. Re-dispatch required.".to_string(),
+                )),
                 _ => result.failed.push((skill_name, "Cannot sync in current state".to_string())),
             }
         }
@@ -114,9 +122,9 @@ pub async fn check_dispatch_sync(
             }
         }
         DispatchMethod::Copy => {
-            let last_synced_at = dispatch.last_synced_at.ok_or_else(|| {
-                "Last synced time not found for copy dispatch".to_string()
-            })?;
+            let Some(last_synced_at) = dispatch.last_synced_at else {
+                return Ok(SyncStatus::Outdated);
+            };
 
             let dest_modified = is_directory_modified_after(&dest_path, last_synced_at)
                 .map_err(|e| format!("Failed to check destination modification time: {}", e))?;
@@ -135,7 +143,13 @@ pub async fn check_dispatch_sync(
             }
         }
         DispatchMethod::Hardlink => {
-            return Err("Hardlink dispatch method is not supported yet".to_string());
+            // Hardlinks share the same inode, so source modifications are always reflected
+            // Only check if the hardlink still exists
+            if !dest_path.exists() {
+                SyncStatus::Outdated
+            } else {
+                SyncStatus::Synced
+            }
         }
     };
 
@@ -226,7 +240,19 @@ pub async fn sync_dispatched_skill(
             copy_dir(&source_path, &dest_path)?;
         }
         DispatchMethod::Hardlink => {
-            return Err("Hardlink dispatch method is not supported yet".to_string());
+            // Remove existing hardlink and re-create
+            if dest_path.exists() {
+                std::fs::remove_file(&dest_path)
+                    .or_else(|_| std::fs::remove_dir_all(&dest_path))
+                    .map_err(|e| format!("Failed to remove existing hardlink: {}", e))?;
+            }
+            if source_path.is_file() {
+                std::fs::hard_link(&source_path, &dest_path)
+                    .map_err(|e| format!("Failed to re-create hard link: {}", e))?;
+            } else {
+                hardlink_dir(&source_path, &dest_path)
+                    .map_err(|e| format!("Failed to re-create hard link directory: {}", e))?;
+            }
         }
     }
 

@@ -22,13 +22,26 @@ const PROVIDERS_CONFIG_KEY: &str = "llm.providers";
 pub const DEFAULT_LLM_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_LLM_MODEL: &str = "gpt-4o";
 
+/// Mask an API key for safe frontend display: shows first 4 chars + "****"
+fn mask_api_key(key: &str) -> String {
+    if key.len() <= 4 {
+        "****".to_string()
+    } else {
+        format!("{}****", &key[..4])
+    }
+}
+
 impl LLMProvider {
-    /// Load all providers from DB
+    /// Load all providers from DB, with api_key masked for safe frontend display
     pub async fn list_from_db(pool: &SqlitePool) -> Result<Vec<LLMProvider>, String> {
         // Try new format first
         if let Ok(Some(json)) = Config::get(pool, PROVIDERS_CONFIG_KEY).await {
             if let Ok(providers) = serde_json::from_str::<Vec<LLMProvider>>(&json) {
-                return Ok(providers);
+                // Mask api_key before sending to frontend
+                return Ok(providers.into_iter().map(|mut p| {
+                    p.api_key = mask_api_key(&p.api_key);
+                    p
+                }).collect());
             }
         }
 
@@ -42,18 +55,22 @@ impl LLMProvider {
                 .map_err(|e| e.to_string())?
                 .unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string());
 
+            let masked_key = mask_api_key(&api_key);
             let provider = LLMProvider {
                 id: uuid::Uuid::new_v4().to_string(),
                 name: "OpenAI".to_string(),
-                api_key,
-                base_url,
-                model,
+                api_key: masked_key,
+                base_url: base_url.clone(),
+                model: model.clone(),
                 is_default: true,
             };
 
-            let providers = vec![provider];
-            // Save in new format
-            Self::save_all(pool, &providers).await?;
+            let providers = vec![provider.clone()];
+            // Save in new format (with original unmasked key)
+            Self::save_all(pool, &[LLMProvider {
+                api_key,
+                ..provider
+            }]).await?;
             return Ok(providers);
         }
 
@@ -67,11 +84,36 @@ impl LLMProvider {
         Ok(())
     }
 
-    /// Get the default provider (first default-marked, or first in list)
+    /// Get the default provider with unmasked api_key for internal API calls
     pub async fn get_default(pool: &SqlitePool) -> Result<Option<LLMProvider>, String> {
-        let providers = Self::list_from_db(pool).await?;
-        let default = providers.iter().find(|p| p.is_default).cloned();
-        Ok(default.or_else(|| providers.into_iter().next()))
+        // Load raw providers without masking for internal use
+        if let Ok(Some(json)) = Config::get(pool, PROVIDERS_CONFIG_KEY).await {
+            if let Ok(providers) = serde_json::from_str::<Vec<LLMProvider>>(&json) {
+                let default = providers.iter().find(|p| p.is_default).cloned();
+                return Ok(default.or_else(|| providers.into_iter().next()));
+            }
+        }
+
+        // Backward compatibility: read old single-provider format
+        let api_key = Config::get(pool, "llm.openai.api_key").await.map_err(|e| e.to_string())?;
+        if let Some(api_key) = api_key {
+            let base_url = Config::get(pool, "llm.openai.base_url").await
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| DEFAULT_LLM_BASE_URL.to_string());
+            let model = Config::get(pool, "llm.openai.model").await
+                .map_err(|e| e.to_string())?
+                .unwrap_or_else(|| DEFAULT_LLM_MODEL.to_string());
+            return Ok(Some(LLMProvider {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: "OpenAI".to_string(),
+                api_key,
+                base_url,
+                model,
+                is_default: true,
+            }));
+        }
+
+        Ok(None)
     }
 }
 
@@ -99,7 +141,7 @@ impl From<&LLMProvider> for LLMConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LLMModel {
     pub id: String,
-    #[serde(rename = "owned_by", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "ownedBy", skip_serializing_if = "Option::is_none")]
     pub owned_by: Option<String>,
 }
 
@@ -112,17 +154,22 @@ pub struct OpenAIClient {
 }
 
 impl OpenAIClient {
-    pub fn new(config: &LLMConfig) -> Self {
+    pub fn new(config: &LLMConfig) -> anyhow::Result<Self> {
         let base_url = config
             .base_url
             .clone()
             .unwrap_or_else(|| DEFAULT_LLM_BASE_URL.to_string());
 
-        Self {
-            client: reqwest::Client::new(),
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| anyhow::anyhow!("Failed to build reqwest client: {}", e))?;
+
+        Ok(Self {
+            client,
             api_key: config.api_key.clone(),
             base_url,
-        }
+        })
     }
 
     #[cfg(test)]
@@ -386,7 +433,7 @@ mod tests {
 
         let providers = LLMProvider::list_from_db(&pool).await.unwrap();
         assert_eq!(providers.len(), 1);
-        assert_eq!(providers[0].api_key, "test_api_key_123");
+        assert_eq!(providers[0].api_key, "test****");
         assert_eq!(providers[0].base_url, "https://api.openai.com/v1");
         assert_eq!(providers[0].model, "gpt-4o-mini");
         assert!(providers[0].is_default);
@@ -431,7 +478,7 @@ mod tests {
             model: "gpt-4o".to_string(),
         };
 
-        let client = OpenAIClient::new(&config);
+        let client = OpenAIClient::new(&config).unwrap();
         assert!(client.api_base().contains("https://custom.api.com/v1"));
     }
 
@@ -443,7 +490,7 @@ mod tests {
             model: "gpt-4o".to_string(),
         };
 
-        let client = OpenAIClient::new(&config);
+        let client = OpenAIClient::new(&config).unwrap();
         assert_eq!(client.api_base(), "https://api.openai.com/v1");
     }
 
