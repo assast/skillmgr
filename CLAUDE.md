@@ -41,15 +41,16 @@ Rust modules:
 
 - `db/` — Schema (`schema.rs`/INIT_SQL), CRUD for repositories, skills, dispatches, config (key-value), dispatch templates. Uses sqlx with SQLite.
 - `skills/` — `discovery.rs` (walkdir-based skill scanning from repository dirs), `crud.rs` (list/update/delete), `analyzer.rs` (LLM-powered skill analysis)
-- `dispatch/` — `target_dir.rs` (manage dispatch target dirs), `symlink.rs`/`copy.rs` (dispatch methods), `sync.rs` (sync dispatched skills)
-- `git/` — `clone.rs`, `pull.rs`, `auth.rs` (git2-rs based repo management with SSH/token auth)
-- `llm/` — `client.rs` (OpenAI-compatible API client with mockall support), `prompts.rs`
+- `dispatch/` — `target_dir.rs` (manage dispatch target dirs), `symlink.rs`/`copy.rs` (dispatch methods), `sync.rs` (sync dispatched skills), bulk dispatch
+- `git/` — `clone.rs`, `pull.rs`, `auth.rs` (git2-rs based repo management with SSH/token/HTTP auth)
+- `llm/` — `client.rs` (OpenAI-compatible API client with multi-provider support and mockall), `prompts.rs`
 - `config/` — `base_path.rs` (skill repository root directory config)
+- `error.rs` — `AppError` type and `sanitize_error()` for safe error messages to frontend
 
 **React frontend** (`src/`) uses:
 
 - **Zustand** stores in `store/` — each store wraps `invoke()` calls to Tauri commands. `configStore` handles base path and onboarding flow, `skillStore` manages skill CRUD, `dispatchStore` handles dispatch operations, `settingsStore` manages theme.
-- **React Router** (HashRouter) with routes: `/` (Skills), `/dispatches`, `/settings`. Onboarding shows when `basePath` is null.
+- **React Router** (HashRouter) with routes: `/` (Skills), `/repositories`, `/dispatches`, `/settings`. Onboarding shows when `basePath` is null.
 - **shadcn/ui** components in `components/ui/` (Radix UI + Tailwind CSS)
 - **Path alias**: `@/*` maps to `./src/*`
 
@@ -67,6 +68,14 @@ SQLite via sqlx. Schema is defined as `INIT_SQL` constant in `src-tauri/src/db/s
 - **Skill** — A discovered skill file/directory within a repository. Has type, tags, quality score, and optional LLM analysis.
 - **Dispatch** — Linking a skill to a target project directory via symlink/copy/hardlink. Tracks sync status (`synced`/`outdated`/`conflict`/`error`).
 - **Dispatch Template** — A named group of skill IDs for bulk dispatch.
+
+### Concurrency
+
+Background operations (git clone/sync, skill scanning) are concurrency-limited via `BG_SEMAPHORE` (max 4 concurrent). See `src-tauri/src/main.rs:22`.
+
+### Logging
+
+Structured logging via `tracing` + `tracing-subscriber` with env-filter (default: `warn`). Set `RUST_LOG` env var to control level.
 
 ## Testing
 
@@ -87,4 +96,4 @@ Rust tests use `mockall` for trait mocking (e.g., `LLMClient`), `tokio-test`, `t
 - `src-tauri/` is excluded from Vite file watching
 - Release profile uses aggressive optimization: LTO fat, opt-level "z", strip enabled
 - macOS signing identity is null by default (unsigned dev builds)
-- CSP policy in tauri.conf.json restricts to self + https connect-src
+- CSP policy in tauri.conf.json: `default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self' https:;`

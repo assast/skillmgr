@@ -47,3 +47,10 @@ release/
 .sisyphus
 .slim
 .superpowers/
+
+# Local tool indices
+.codegraph
+
+# Temporary reports
+product-polish-report.html
+product-polish-summary.html

@@ -4,15 +4,17 @@ A cross-platform desktop application for managing and dispatching AI skill libra
 
 ## Features
 
-- **Multi-source Management** — Add skills from GitHub, GitLab, Gitee, or local directories
+- **Multi-source Management** — Add skills from GitHub, private Git, or local directories
 - **Auto Discovery** — Scan repositories and automatically identify skill files (SKILL.md, skill.json, etc.)
-- **AI Analysis** — Connect an OpenAI-compatible API to auto-generate skill descriptions, tags, and quality scores
+- **AI Analysis** — Connect OpenAI-compatible APIs to auto-generate skill descriptions, tags, and quality scores
+- **Multi Provider LLM** — Save and switch between multiple LLM provider configurations (API key, base URL, model)
 - **Smart Dispatch** — Deploy skills to project directories via Symlink, Copy, or Hardlink
 - **Dispatch Templates** — Save groups of skills as templates for one-click bulk deployment
 - **Sync Tracking** — Monitor dispatch status (Synced / Outdated / Conflict / Error) with one-click re-sync
 - **Search & Filter** — Full-text search with filtering by name, tags, type, and source
 - **Local First** — All data stored in local SQLite, no cloud account required
 - **Cross Platform** — Built with Tauri 2.x, runs on Windows, macOS, and Linux
+- **Auto Update** — Built-in application updater via Tauri plugin
 
 ## Quick Start
 
@@ -57,6 +59,10 @@ npm run tauri build
 
 Browse all discovered skills with search and filtering. View AI-generated summaries, tags, and quality scores. Select skills for bulk dispatch.
 
+### Repositories Page
+
+Manage skill source repositories. Add remote Git or local directory sources, sync to pull latest changes, and view sync status.
+
 ### Dispatches Page
 
 Manage target project directories and deployed skills. Sync individual or all skills. Track status and resolve conflicts.
@@ -70,7 +76,7 @@ Create dispatch templates — named groups of skills for quick deployment to new
 | Layer        | Technologies                                                 |
 | ------------ | ------------------------------------------------------------ |
 | **Frontend** | React 19, TypeScript, Tailwind CSS, shadcn/ui, Zustand, Vite |
-| **Backend**  | Rust, Tauri 2.x, sqlx + SQLite, git2-rs                      |
+| **Backend**  | Rust, Tauri 2.x, sqlx + SQLite, git2-rs, reqwest             |
 | **Build**    | Vite, Cargo, Tauri CLI                                       |
 
 ## Architecture
@@ -89,20 +95,22 @@ Frontend (React)                Backend (Rust)
 
 ```
 ├── src/                    # React frontend
-│   ├── pages/              # Page components (Skills, Dispatches, Settings)
-│   ├── components/         # Reusable UI components
+│   ├── pages/              # Page components (Skills, Repositories, Dispatches, Settings)
+│   ├── components/         # Reusable UI components (including ui/ for shadcn)
 │   ├── store/              # Zustand state stores
 │   ├── types/              # TypeScript type definitions
-│   └── lib/                # Utility functions
+│   ├── lib/                # Utility functions
+│   └── test/               # Test setup and utilities
 ├── src-tauri/              # Rust backend
 │   └── src/
-│       ├── main.rs         # Tauri command handlers
+│       ├── main.rs         # Tauri command handlers & entry point
 │       ├── db/             # Database schema and CRUD
 │       ├── git/            # Git clone, pull, auth
-│       ├── skills/         # Skill discovery, analysis
-│       ├── dispatch/       # Dispatch methods, sync
-│       ├── llm/            # OpenAI-compatible client
-│       └── config/         # Configuration management
+│       ├── skills/         # Skill discovery, CRUD, analysis
+│       ├── dispatch/       # Dispatch methods, sync, bulk dispatch
+│       ├── llm/            # OpenAI-compatible client (multi-provider)
+│       ├── config/         # Base path configuration
+│       └── error.rs        # Error types and sanitization
 ├── CLAUDE.md               # AI assistant development guide
 └── LICENSE                 # MIT License
 ```
@@ -110,7 +118,7 @@ Frontend (React)                Backend (Rust)
 ## Testing
 
 ```bash
-# Frontend tests
+# Frontend tests (vitest)
 npm run test:run
 
 # Rust tests
