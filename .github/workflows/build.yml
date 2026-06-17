@@ -32,16 +32,27 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Tauri App
-        uses: tauri-apps/tauri-action@v0
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Rust backend
+        working-directory: src-tauri
+        run: cargo build --release --verbose
+
+      - name: Bundle app
+        run: npx @tauri-apps/cli build --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Skill Vaults v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
+          name: windows-build
+          path: |
+            src-tauri/target/release/bundle/**/*.msi
+            src-tauri/target/release/bundle/**/*.exe
+          if-no-files-found: warn
 
   build-macos:
     name: Build macOS (${{ matrix.target }})
@@ -74,14 +85,24 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Tauri App
-        uses: tauri-apps/tauri-action@v0
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build Rust backend
+        working-directory: src-tauri
+        run: cargo build --release --target ${{ matrix.target }} --verbose
+
+      - name: Bundle app
+        run: npx @tauri-apps/cli build --target ${{ matrix.target }} --verbose
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: 'Skill Vaults v__VERSION__'
-          releaseBody: 'See the assets to download this version and install.'
-          releaseDraft: true
-          prerelease: false
-          args: --target ${{ matrix.target }}
+          name: macos-build-${{ matrix.target }}
+          path: |
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            src-tauri/target/${{ matrix.target }}/release/bundle/**/*.app
+          if-no-files-found: warn
