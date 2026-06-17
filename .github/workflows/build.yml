@@ -56,13 +56,15 @@ jobs:
 
   build-macos:
     name: Build macOS (${{ matrix.target }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - aarch64-apple-darwin
-          - x86_64-apple-darwin
+        include:
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-13
     steps:
       - uses: actions/checkout@v4
 
