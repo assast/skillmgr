@@ -42,9 +42,8 @@
     "longDescription": "Skill Vaults is a desktop application that helps you organize, track, and improve your skills and knowledge base.",
     "macOS": {
       "minimumSystemVersion": "10.15",
-      "entitlements": "entitlements.plist",
       "signingIdentity": null,
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "dmg": {
         "background": null,
         "windowSize": { "width": 600, "height": 400 }
